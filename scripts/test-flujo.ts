@@ -4,7 +4,9 @@
  *
  *   npm run test:flujo     (necesita el server en :3100)
  */
+import { cerrarConexion } from "../src/db";
 import { setPin } from "../src/lib/auth";
+import { requierePostgres } from "./_requiere-postgres";
 
 const B = "http://127.0.0.1:3100";
 let cookie = "";
@@ -57,10 +59,12 @@ async function loteAbiertoEn(maquinaId: number) {
 }
 
 async function main() {
+  requierePostgres("test:flujo");
+
   // Preparación. Este test no puede depender de lo que dejó otro: fija sus
   // propios PINs y se asegura su propio lote abierto en la máquina 1.
   for (const [rol, pin] of Object.entries(PIN) as ["jefe" | "calidad" | "admin", string][]) {
-    setPin(rol, pin);
+    await setPin(rol, pin);
   }
 
   const entrada = await login(PIN.admin);
@@ -237,11 +241,11 @@ async function main() {
  * camino. Si no, una corrida fallida deja la base con los PINs del test y el
  * próximo que abra la app no puede entrar.
  */
-function restaurarPins() {
+async function restaurarPins() {
   try {
-    setPin("jefe", SEED.jefe);
-    setPin("calidad", SEED.calidad);
-    setPin("admin", SEED.admin);
+    await setPin("jefe", SEED.jefe);
+    await setPin("calidad", SEED.calidad);
+    await setPin("admin", SEED.admin);
     console.log(`  (PINs restaurados: ${SEED.jefe} / ${SEED.calidad} / ${SEED.admin})`);
   } catch (e) {
     console.error("  OJO: no pude restaurar los PINs:", e);
@@ -253,4 +257,7 @@ main()
     console.error(e);
     process.exitCode = 1;
   })
-  .finally(restaurarPins);
+  .finally(async () => {
+    await restaurarPins();
+    await cerrarConexion();
+  });

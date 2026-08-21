@@ -13,7 +13,8 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { sql } from "drizzle-orm";
-import { db } from "../src/db";
+import { cerrarConexion, db } from "../src/db";
+import { migrar } from "../src/db/migrar";
 import { etiquetas } from "../src/db/schema";
 import { setPin, type Rol } from "../src/lib/auth";
 
@@ -41,11 +42,12 @@ function ponerEnEnv(clave: string, valor: string) {
   fs.writeFileSync(archivo, texto, "utf8");
 }
 
-function main() {
+async function main() {
   console.log("\nPreparando la demo...\n");
 
   // --- 1. Datos de ejemplo -------------------------------------------------
-  const cuantas = db.select({ n: sql<number>`count(*)` }).from(etiquetas).get()!.n;
+  await migrar();
+  const [{ n: cuantas }] = await db.select({ n: sql<number>`count(*)::int` }).from(etiquetas);
   if (cuantas < 200) {
     console.log("  Generando producción de ejemplo...");
     execFileSync(npx, ["tsx", "scripts/seed-demo.ts"], { stdio: "inherit", shell: esWin });
@@ -58,7 +60,7 @@ function main() {
   const nuevos: Record<string, string> = {};
   for (const rol of ["jefe", "calidad", "admin"] as Exclude<Rol, "operario">[]) {
     const pin = pinAlAzar(usados);
-    setPin(rol, pin);
+    await setPin(rol, pin);
     nuevos[rol] = pin;
   }
 
@@ -109,4 +111,9 @@ function main() {
   console.log("    2)  cloudflared tunnel --url http://localhost:3000\n");
 }
 
-main();
+main()
+  .catch((e) => {
+    console.error(e);
+    process.exitCode = 1;
+  })
+  .finally(() => cerrarConexion());

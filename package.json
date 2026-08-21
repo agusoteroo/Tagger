@@ -17,10 +17,7 @@
     "test:metricas": "tsx scripts/test-metricas.ts",
     "test:export": "tsx scripts/test-export.ts",
     "test:lotes": "tsx scripts/test-lotes.ts",
-    "demo:preparar": "tsx scripts/preparar-demo.ts",
-    "backup": "tsx scripts/backup.ts",
-    "build:scripts": "tsc -p tsconfig.scripts.json",
-    "empaquetar": "tsx scripts/empaquetar.ts"
+    "demo:preparar": "tsx scripts/preparar-demo.ts"
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.5.5",

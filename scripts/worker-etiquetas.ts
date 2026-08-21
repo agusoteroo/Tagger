@@ -1,16 +1,17 @@
 /**
  * Proceso worker del test de concurrencia. No se corre a mano.
- * Cada instancia abre SU PROPIA conexion al mismo archivo SQLite, asi que la
- * pelea por el lock de escritura es real, a nivel sistema operativo.
+ *
+ * Cada instancia abre SU PROPIA conexión a la base, así que la pelea por el
+ * número de caja es real: procesos distintos, conexiones distintas.
  *
  *   tsx scripts/worker-etiquetas.ts <modo> <maquinaId> <operarioId> <cantidad>
  *
- * modo = nuevo  -> usa crearEtiqueta() (transaccion IMMEDIATE + UNIQUE)
- * modo = viejo  -> replica la logica del artifact original: leer el contador,
- *                  incrementarlo en memoria, escribirlo. Sin transaccion.
+ * modo = nuevo  -> usa crearEtiqueta() (UNIQUE(lote, caja) + reintento)
+ * modo = viejo  -> replica la lógica del artifact original: leer el contador,
+ *                  incrementarlo en memoria, escribirlo. Sin transacción.
  */
-import Database from "better-sqlite3";
-import path from "node:path";
+import { sql } from "drizzle-orm";
+import { cerrarConexion, db } from "../src/db";
 import { crearEtiqueta } from "../src/lib/etiquetas";
 
 const [modo, maquinaIdRaw, operarioIdRaw, cantidadRaw] = process.argv.slice(2);
@@ -18,47 +19,62 @@ const maquinaId = Number(maquinaIdRaw);
 const operarioId = Number(operarioIdRaw);
 const cantidad = Number(cantidadRaw);
 
-let ok = 0;
-let rechazos = 0;
+async function main() {
+  let ok = 0;
+  let rechazos = 0;
 
-if (modo === "nuevo") {
-  for (let i = 0; i < cantidad; i++) {
-    try {
-      crearEtiqueta({ maquinaId, operarioId, turno: "Mañana", cantidad: 240, actor: "test" });
-      ok++;
-    } catch (e) {
-      // Un rechazo NO es una perdida de datos: es la base defendiendose.
-      // En la app real esto se reintenta y el operario nunca lo ve.
-      rechazos++;
-      if (!String(e).includes("UNIQUE") && !String(e).includes("SQLITE_BUSY")) {
-        console.error("  error inesperado:", String(e).slice(0, 120));
+  if (modo === "nuevo") {
+    for (let i = 0; i < cantidad; i++) {
+      try {
+        await crearEtiqueta({
+          maquinaId,
+          operarioId,
+          turno: "Mañana",
+          cantidad: 240,
+          actor: "test",
+        });
+        ok++;
+      } catch (e) {
+        // Un rechazo NO es pérdida de datos: es la base defendiéndose, y el
+        // reintento interno ya lo cubre. Si llega acá es algo distinto.
+        rechazos++;
+        console.error("  error inesperado:", String(e).slice(0, 160));
       }
     }
-  }
-} else {
-  // --- Replica del bug original ---------------------------------------------
-  // El artifact hace: nextCaja = machine.cajaCounter + 1, y despues persiste.
-  // Entre la lectura y la escritura hay un hueco. Eso es la carrera.
-  const file = path.join(process.cwd(), "data", "etiquetado.db");
-  const sqlite = new Database(file);
-  sqlite.pragma("journal_mode = WAL");
-  sqlite.pragma("busy_timeout = 5000");
+  } else {
+    // --- Réplica del bug original -------------------------------------------
+    // El artifact hacía: nextCaja = machine.cajaCounter + 1, y después
+    // persistía. Entre la lectura y la escritura hay un hueco. Ahí está la
+    // carrera.
+    for (let i = 0; i < cantidad; i++) {
+      const filas = await db.execute(
+        sql`select valor from demo_viejo_contador where lote_id = ${maquinaId}`
+      );
+      const arr = (Array.isArray(filas) ? filas : (filas as { rows?: unknown[] }).rows ?? []) as {
+        valor: number;
+      }[];
+      const proxima = (arr[0]?.valor ?? 0) + 1;
 
-  const leer = sqlite.prepare("SELECT valor FROM demo_viejo_contador WHERE lote_id = ?");
-  const escribir = sqlite.prepare("UPDATE demo_viejo_contador SET valor = ? WHERE lote_id = ?");
-  const insertar = sqlite.prepare("INSERT INTO demo_viejo_etiquetas (lote_id, caja) VALUES (?, ?)");
+      // El hueco: en el artifact era el tiempo de red más el render de React.
+      // Acá se hace explícito con un poco de trabajo sincrónico.
+      for (let k = 0; k < 40000; k++) Math.sqrt(k);
 
-  for (let i = 0; i < cantidad; i++) {
-    const fila = leer.get(maquinaId) as { valor: number } | undefined;
-    const proxima = (fila?.valor ?? 0) + 1;
-    // El hueco: en el artifact es el tiempo de red + render de React.
-    // Aca lo hacemos explicito con un poco de trabajo sincronico.
-    for (let k = 0; k < 40000; k++) Math.sqrt(k);
-    escribir.run(proxima, maquinaId);
-    insertar.run(maquinaId, proxima);
-    ok++;
+      await db.execute(
+        sql`update demo_viejo_contador set valor = ${proxima} where lote_id = ${maquinaId}`
+      );
+      await db.execute(
+        sql`insert into demo_viejo_etiquetas (lote_id, caja) values (${maquinaId}, ${proxima})`
+      );
+      ok++;
+    }
   }
-  sqlite.close();
+
+  console.log(JSON.stringify({ pid: process.pid, modo, ok, rechazos }));
 }
 
-console.log(JSON.stringify({ pid: process.pid, modo, ok, rechazos }));
+main()
+  .catch((e) => {
+    console.error(e);
+    process.exitCode = 1;
+  })
+  .finally(() => cerrarConexion());
