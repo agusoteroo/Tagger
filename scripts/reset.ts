@@ -14,7 +14,7 @@ import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { sql } from "drizzle-orm";
 
-const url = process.env.DATABASE_URL ?? "pglite://./data/pg";
+const url = process.env.DATABASE_URL?.trim() || "pglite://./data/pg";
 const esWin = process.platform === "win32";
 
 if (process.env.NODE_ENV === "production") {

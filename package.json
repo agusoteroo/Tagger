@@ -12,14 +12,15 @@
     "test:concurrencia": "tsx --env-file-if-exists=.env.local scripts/test-concurrencia.ts",
     "test:flujo": "tsx --env-file-if-exists=.env.local scripts/test-flujo.ts",
     "db:reset": "tsx --env-file-if-exists=.env.local scripts/reset.ts",
-    "test": "npm run test:tz && npm run test:lotes && npm run test:flujo && npm run test:export && npm run test:metricas && npm run test:concurrencia",
+    "test": "npm run test:entorno && npm run test:tz && npm run test:lotes && npm run test:flujo && npm run test:export && npm run test:metricas && npm run test:concurrencia",
     "db:demo": "tsx --env-file-if-exists=.env.local scripts/seed-demo.ts",
     "test:metricas": "tsx --env-file-if-exists=.env.local scripts/test-metricas.ts",
     "test:export": "tsx --env-file-if-exists=.env.local scripts/test-export.ts",
     "test:lotes": "tsx --env-file-if-exists=.env.local scripts/test-lotes.ts",
     "demo:preparar": "tsx --env-file-if-exists=.env.local scripts/preparar-demo.ts",
     "test:tz": "tsx scripts/test-tz.ts",
-    "db:migrar": "tsx --env-file-if-exists=.env.local scripts/migrar.ts"
+    "db:migrar": "tsx --env-file-if-exists=.env.local scripts/migrar.ts",
+    "test:entorno": "tsx scripts/test-entorno.ts"
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.5.5",

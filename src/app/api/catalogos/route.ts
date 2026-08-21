@@ -3,6 +3,7 @@ import { db } from "@/db";
 import { etiquetas, frascos, lotes, maquinas, operarios, turnos } from "@/db/schema";
 import { handler, rolActual } from "@/lib/api";
 import { permisosDe, pinsConfigurados } from "@/lib/auth";
+import { bandera } from "@/lib/entorno";
 import { colaPorMaquina } from "@/lib/lotes";
 
 /**
@@ -118,7 +119,7 @@ export async function GET() {
       rol,
       // Bandera de ambiente. Se define con MODO_DEMO=1 en el .env, para que la
       // pantalla avise que los datos son de prueba y se van a borrar.
-      modoDemo: process.env.MODO_DEMO === "1",
+      modoDemo: bandera("MODO_DEMO"),
       permisos: permisosDe(rol),
       pins,
       maquinas: conProgreso,

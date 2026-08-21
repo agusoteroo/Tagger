@@ -3,6 +3,7 @@ import { db } from "./index";
 import { migrar } from "./migrar";
 import { frascos, maquinas, operarios, turnos } from "./schema";
 import { setPin } from "@/lib/auth";
+import { bandera, texto, textoOpcional } from "@/lib/entorno";
 import { prepararLote } from "@/lib/lotes";
 
 /**
@@ -34,7 +35,7 @@ async function estaVacia() {
 }
 
 export async function sembrarSiVacio() {
-  if (process.env.SEMBRAR_SI_VACIO !== "1") return { sembrado: false, motivo: "desactivado" };
+  if (!bandera("SEMBRAR_SI_VACIO")) return { sembrado: false, motivo: "desactivado" };
   if (!(await estaVacia())) return { sembrado: false, motivo: "la base ya tiene datos" };
 
   console.log("[arranque] base vacía, sembrando catálogos iniciales...");
@@ -71,10 +72,13 @@ export async function sembrarSiVacio() {
 
   // PINs iniciales. Se toman de las env vars si estan definidas, para no dejar
   // los del repo en una URL publica.
+  // texto() y no `??`: con PIN_ADMIN_INICIAL="" esto ponia un PIN VACIO. La
+  // variable existe pero sin valor es un caso comun en Vercel, y un PIN vacio
+  // es una puerta abierta.
   const pins = {
-    jefe: process.env.PIN_JEFE_INICIAL ?? "3690",
-    calidad: process.env.PIN_CALIDAD_INICIAL ?? "2468",
-    admin: process.env.PIN_ADMIN_INICIAL ?? "1357",
+    jefe: texto("PIN_JEFE_INICIAL", "3690"),
+    calidad: texto("PIN_CALIDAD_INICIAL", "2468"),
+    admin: texto("PIN_ADMIN_INICIAL", "1357"),
   };
   for (const [rol, pin] of Object.entries(pins) as ["jefe" | "calidad" | "admin", string][]) {
     try {
@@ -84,7 +88,7 @@ export async function sembrarSiVacio() {
     }
   }
 
-  const porDefecto = !process.env.PIN_ADMIN_INICIAL;
+  const porDefecto = !textoOpcional("PIN_ADMIN_INICIAL");
   console.log(
     `[arranque] listo: ${FRASCOS.length} frascos, ${OPERARIOS.length} operarios, ` +
       `${MAQUINAS.length} máquinas con lote abierto.` +

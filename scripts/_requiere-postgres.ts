@@ -8,7 +8,7 @@
  * Mejor cortar temprano y explicar qué falta.
  */
 export function requierePostgres(nombre: string) {
-  const url = process.env.DATABASE_URL ?? "pglite://./data/pg";
+  const url = process.env.DATABASE_URL?.trim() || "pglite://./data/pg";
   if (!url.startsWith("pglite://") && !url.startsWith("file:")) return;
 
   console.error(

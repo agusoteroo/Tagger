@@ -1,5 +1,6 @@
 import { drizzle as drizzlePg } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
+import { entero } from "@/lib/entorno";
 import * as schema from "./schema";
 
 /**
@@ -42,7 +43,15 @@ import * as schema from "./schema";
 const URL_DEFECTO_DEV = "pglite://./data/pg";
 
 type Db = ReturnType<typeof drizzlePg<typeof schema>>;
-type Conexion = { db: Db; cerrar: () => Promise<void>; motor: "postgres" | "pglite" };
+type Conexion = {
+  db: Db;
+  cerrar: () => Promise<void>;
+  motor: "postgres" | "pglite";
+  /** Tamano efectivo del pool. Se informa en /api/salud a proposito: un pool de
+   *  cero conexiones no da error, encola para siempre, y desde afuera se ve
+   *  igual que una base caida. */
+  pool: number;
+};
 
 function url() {
   const u = process.env.DATABASE_URL;
@@ -75,6 +84,7 @@ function crear(): Conexion {
       db: drizzlePglite(cliente, { schema }) as unknown as Db,
       cerrar: () => cliente.close(),
       motor: "pglite",
+      pool: 1,
     };
   }
 
@@ -87,15 +97,21 @@ function crear(): Conexion {
     );
   }
 
+  const pool = entero("DB_MAX_CONEXIONES", 3, { min: 1, max: 20 });
+
   const cliente = postgres(u, {
     prepare: false,
-    max: Number(process.env.DB_MAX_CONEXIONES ?? 3),
+    // entero() y no Number(): con DB_MAX_CONEXIONES="" esto daba max: 0, o sea
+    // un pool de cero conexiones. No falla -- encola las consultas para
+    // siempre. Fue el cuelgue de 300 s en Vercel, con la red y el driver
+    // andando perfecto.
+    max: pool,
     idle_timeout: 20,
     connect_timeout: 15,
     onnotice: () => {}, // Postgres avisa cosas como "table already exists"; no ensuciar el log.
   });
 
-  return { db: drizzlePg(cliente, { schema }), cerrar: () => cliente.end(), motor: "postgres" };
+  return { db: drizzlePg(cliente, { schema }), cerrar: () => cliente.end(), motor: "postgres", pool };
 }
 
 // Next recarga los modulos en caliente en dev. Sin el singleton se abririan
@@ -121,6 +137,11 @@ export const db = new Proxy({} as Db, {
     return prop in (conexion().db as unknown as object);
   },
 }) as Db;
+
+/** Tamano efectivo del pool. Abre la conexion si hace falta. */
+export function poolActual(): number {
+  return conexion().pool;
+}
 
 /** No abre la conexion si nunca se uso: cerrar algo que no existe es un no-op. */
 export async function cerrarConexion() {

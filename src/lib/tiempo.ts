@@ -1,4 +1,5 @@
 import { sql, type SQL } from "drizzle-orm";
+import { texto } from "./entorno";
 
 /**
  * Zona horaria de la planta.
@@ -17,15 +18,9 @@ import { sql, type SQL } from "drizzle-orm";
 
 const ZONA_POR_DEFECTO = "America/Argentina/Buenos_Aires";
 
-/**
- * `||` y no `??` a propósito.
- *
- * `??` solo cae al valor por defecto con `null` o `undefined`. Una variable de
- * entorno definida pero VACÍA da `""`, que con `??` pasaba de largo — y el
- * build de Vercel fallaba con `TZ_PLANTA inválida: ""`. Una variable vacía es
- * lo mismo que no tenerla.
- */
-export const ZONA = process.env.TZ_PLANTA?.trim() || ZONA_POR_DEFECTO;
+// texto() y no `??`: una variable definida pero vacía da "", que con `??`
+// pasaba de largo. Ver el comentario de entorno.ts, donde vive el porqué.
+export const ZONA = texto("TZ_PLANTA", ZONA_POR_DEFECTO);
 
 /**
  * La zona va INTERPOLADA en el SQL, no como parámetro bindeado.

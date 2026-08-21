@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { db } from "@/db";
+import { db, motorActual, poolActual } from "@/db";
 import { diagnosticarRed } from "@/lib/diagnostico-red";
 import { conLimite } from "@/lib/limite-tiempo";
 import { ZONA, hoyLocal } from "@/lib/tiempo";
@@ -63,6 +63,10 @@ export async function GET(pedido: Request) {
         zona: ZONA,
         // El dia local de la planta segun esa zona, calculado por Postgres.
         diaLocal: fila?.dia ?? null,
+        motor: motorActual(),
+        // Se informa a proposito: un pool de cero conexiones no da error,
+        // encola para siempre, y desde afuera se ve igual que una base caida.
+        pool: poolActual(),
         ms: Date.now() - arranque,
         region: process.env.VERCEL_REGION ?? null,
         ts: new Date().toISOString(),
