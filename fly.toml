@@ -1,0 +1,67 @@
+# ---------------------------------------------------------------------------
+# ENPLAS · Etiquetado — despliegue en Fly.io
+#
+# Cambiá `app` por el nombre que elijas al crear la app.
+# ---------------------------------------------------------------------------
+
+app = "enplas-etiquetado"
+# Fly NO tiene region en Argentina. gru (Sao Paulo) es la mas cercana:
+# ~30-40 ms desde Buenos Aires, irrelevante para esta app.
+# Verificar con: fly platform regions
+primary_region = "gru"
+
+[build]
+  dockerfile = "Dockerfile"
+
+# ---------------------------------------------------------------------------
+# La base vive aca. Sin el volumen, cada deploy borraria la trazabilidad.
+#
+# 1 GB alcanza de sobra. Medido con un año de produccion real (60.000 etiquetas
+# + 120.000 filas de auditoria): 34 MB. O sea ~594 bytes por etiqueta contando
+# indices y auditoria. A ese ritmo, 1 GB son ~30 años.
+#
+# Si algun dia hiciera falta, se agranda en caliente: fly volumes extend <id> -s 3
+#
+# Crear con:  fly volumes create datos --size 1 --region gru
+# ---------------------------------------------------------------------------
+[mounts]
+  source = "datos"
+  destination = "/data"
+
+[env]
+  DB_PATH = "/data/etiquetado.db"
+  TZ_OFFSET_HORAS = "-3"
+  PORT = "3000"
+
+[http_service]
+  internal_port = 3000
+  force_https = true
+
+  # ATENCIÓN: esto NO se puede escalar a más de una máquina.
+  #
+  # SQLite necesita un solo proceso escribiendo el archivo. Dos máquinas
+  # montando el mismo volumen corromperían la base, y dos volúmenes distintos
+  # darían dos historiales que no se hablan. La numeración atómica de cajas
+  # depende de que haya un solo escritor.
+  #
+  # Si algún día hace falta escalar de verdad, primero hay que migrar a Postgres.
+  min_machines_running = 1
+  auto_stop_machines = "off"
+  auto_start_machines = true
+
+  [[http_service.checks]]
+    # El chequeo consulta la base, no solo el puerto: si la base no responde la
+    # app está arriba pero inservible, y eso tiene que contar como caída.
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "20s"
+    method = "GET"
+    path = "/api/salud"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"
+
+# Un solo proceso, sin réplicas. Ver la nota de arriba.
+[deploy]
+  strategy = "immediate"

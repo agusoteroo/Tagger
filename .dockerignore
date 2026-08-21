@@ -1,0 +1,12 @@
+node_modules
+.next
+.git
+.env.local
+data
+backups
+PINS-DEMO.txt
+*.md
+!README.md
+.claude
+AGENTS.md
+CLAUDE.md

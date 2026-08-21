@@ -1,0 +1,436 @@
+/* Tokens de diseño portados tal cual del artifact original. */
+@import url("https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700;800&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@500;600;700&display=swap");
+
+:root {
+  --bg: #14161a;
+  --panel: #1b1e24;
+  --panel-alt: #23262d;
+  --border: #2c3037;
+  --text: #ededef;
+  --muted: #8a8f98;
+  --amber: #ffb020;
+  --amber-dim: #3a2e10;
+  --steel: #4c8fb0;
+  --steel-dim: #182a32;
+  --success: #4caf6d;
+  --success-dim: #16301f;
+  --danger: #e5484d;
+  --danger-dim: #3a1414;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: "Inter", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+.font-display {
+  font-family: "Barlow Condensed", "Inter", sans-serif;
+}
+.font-mono {
+  font-family: "IBM Plex Mono", monospace;
+}
+
+/* --- Layout helpers (reemplazan las clases de Tailwind del artifact) ------ */
+.row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.col {
+  display: flex;
+  flex-direction: column;
+}
+.wrap {
+  flex-wrap: wrap;
+}
+.grow {
+  flex: 1;
+}
+.ml-auto {
+  margin-left: auto;
+}
+.muted {
+  color: var(--muted);
+}
+.tiny {
+  font-size: 12px;
+}
+.small {
+  font-size: 13px;
+}
+
+/* --- Tabs ---------------------------------------------------------------- */
+.tab-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-radius: 10px;
+  font-family: "Barlow Condensed", sans-serif;
+  font-size: 17px;
+  letter-spacing: 0.02em;
+  font-weight: 600;
+  color: var(--muted);
+  border: 1px solid transparent;
+  background: transparent;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.tab-btn:hover {
+  color: var(--text);
+  background: var(--panel-alt);
+}
+.tab-btn.active {
+  color: var(--amber);
+  background: var(--amber-dim);
+  border-color: #5a4315;
+}
+
+/* --- Cards y tiles ------------------------------------------------------- */
+.card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+}
+
+.tile-btn {
+  background: var(--panel-alt);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  transition: all 0.12s ease;
+  padding: 16px 18px;
+  font-family: inherit;
+}
+.tile-btn:hover {
+  border-color: var(--amber);
+  transform: translateY(-1px);
+}
+.tile-btn:active {
+  transform: translateY(0) scale(0.99);
+}
+.tile-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  transform: none;
+  border-color: var(--border);
+}
+
+/* --- Botones ------------------------------------------------------------- */
+.btn {
+  font-family: "Barlow Condensed", sans-serif;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  border-radius: 10px;
+  cursor: pointer;
+  border: 1px solid transparent;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  transition: all 0.12s ease;
+  font-size: 15px;
+  padding: 9px 14px;
+}
+.btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+.btn-amber {
+  background: var(--amber);
+  color: #1a1200;
+}
+.btn-amber:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+.btn-ghost {
+  background: var(--panel-alt);
+  color: var(--text);
+  border-color: var(--border);
+}
+.btn-ghost:hover:not(:disabled) {
+  border-color: var(--amber);
+}
+.btn-danger {
+  background: var(--danger-dim);
+  color: #ff9a9a;
+  border-color: #5a2323;
+}
+.btn-danger:hover:not(:disabled) {
+  background: var(--danger);
+  color: #1a0000;
+}
+.btn-success {
+  background: var(--success);
+  color: #062010;
+}
+.btn-success:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+/* --- Keypad ------------------------------------------------------------- */
+.keypad-btn {
+  background: var(--panel-alt);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  color: var(--text);
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 26px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.1s ease;
+  aspect-ratio: 1.4/1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.keypad-btn:hover {
+  border-color: var(--amber);
+}
+.keypad-btn:active {
+  background: var(--amber-dim);
+}
+
+/* --- Chips -------------------------------------------------------------- */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: "Barlow Condensed", sans-serif;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.chip-amber {
+  background: var(--amber-dim);
+  color: var(--amber);
+  border: 1px solid #5a4315;
+}
+.chip-steel {
+  background: var(--steel-dim);
+  color: var(--steel);
+  border: 1px solid #1f4552;
+}
+.chip-success {
+  background: var(--success-dim);
+  color: var(--success);
+  border: 1px solid #24512f;
+}
+.chip-danger {
+  background: var(--danger-dim);
+  color: #ff9a9a;
+  border: 1px solid #5a2323;
+}
+
+/* --- Inputs ------------------------------------------------------------- */
+.input {
+  background: var(--panel-alt);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--text);
+  padding: 10px 12px;
+  font-family: "Inter", sans-serif;
+  font-size: 14px;
+  outline: none;
+}
+.input:focus {
+  border-color: var(--amber);
+}
+select.input {
+  cursor: pointer;
+}
+
+/* --- Tablas ------------------------------------------------------------- */
+table.hist {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+table.hist th {
+  text-align: left;
+  font-family: "Barlow Condensed", sans-serif;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: 600;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  background: var(--panel);
+  z-index: 1;
+}
+table.hist td {
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+}
+table.hist tr:hover td {
+  background: var(--panel-alt);
+}
+table.hist td.num,
+table.hist th.num {
+  text-align: right;
+  font-family: "IBM Plex Mono", monospace;
+}
+
+/* --- Stepper ------------------------------------------------------------ */
+.step-dot {
+  width: 26px;
+  height: 26px;
+  border-radius: 999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 12px;
+  font-weight: 700;
+  border: 1.5px solid var(--border);
+  color: var(--muted);
+  background: var(--panel-alt);
+  flex-shrink: 0;
+}
+.step-dot.done {
+  background: var(--success);
+  border-color: var(--success);
+  color: #062010;
+}
+.step-dot.active {
+  border-color: var(--amber);
+  color: var(--amber);
+}
+
+/* --- Etiqueta ----------------------------------------------------------- */
+.label-ticket {
+  background: #f4f1ea;
+  color: #14161a;
+  border-radius: 2px;
+  width: 380px;
+  font-family: "Inter", sans-serif;
+  position: relative;
+  overflow: hidden;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.5);
+}
+.label-ticket .lote-huge {
+  font-family: "IBM Plex Mono", monospace;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+.perf {
+  background-image: radial-gradient(circle, #14161a 2.5px, transparent 2.6px);
+  background-size: 14px 14px;
+  background-position: center;
+  height: 12px;
+}
+
+/* --- Barra de proporción (mini gráfico del tablero) --------------------- */
+.barra {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--panel-alt);
+  overflow: hidden;
+}
+.barra > span {
+  display: block;
+  height: 100%;
+  background: var(--amber);
+  border-radius: 999px;
+}
+
+/* --- Impresión ---------------------------------------------------------- */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  #print-label,
+  #print-label * {
+    visibility: visible;
+  }
+  #print-label {
+    position: fixed;
+    top: 0;
+    left: 0;
+    margin: 0;
+    box-shadow: none;
+    display: block !important;
+  }
+  @page {
+    size: 100mm 70mm;
+    margin: 3mm;
+  }
+}
+.no-print {
+  /* placeholder: la regla real vive arriba, en @media print */
+}
+
+/* --- Spinner ------------------------------------------------------------ */
+@keyframes girar {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.girando {
+  animation: girar 1s linear infinite;
+}
+
+/* --- Layout de la pantalla de etiquetado -------------------------------- */
+/* La estación puede ser una táctil chica. Por debajo de 1100px el panel de
+   vista previa pasa a estar abajo en vez de al costado. */
+.etiquetar-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 400px;
+  gap: 24px;
+}
+@media (max-width: 1100px) {
+  .etiquetar-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* El bloque de cantidad + botón grande también se apila en pantallas chicas. */
+.cantidad-grid {
+  display: grid;
+  grid-template-columns: 230px minmax(0, 1fr);
+  gap: 22px;
+  margin-top: 20px;
+}
+@media (max-width: 640px) {
+  .cantidad-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* --- Banner de ambiente de prueba -------------------------------------- */
+.banner-demo {
+  background: repeating-linear-gradient(
+    45deg,
+    var(--amber-dim) 0 12px,
+    #2e2410 12px 24px
+  );
+  border-bottom: 1px solid #5a4315;
+  color: var(--amber);
+  padding: 9px 16px;
+  font-family: "Barlow Condensed", sans-serif;
+  font-size: 15px;
+  letter-spacing: 0.03em;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  text-align: center;
+  flex-wrap: wrap;
+}

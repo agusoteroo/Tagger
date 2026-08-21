@@ -1,0 +1,28 @@
+# Dependencias y build
+node_modules/
+.next/
+out/
+*.tsbuildinfo
+next-env.d.ts
+
+# --- SECRETOS Y DATOS: nada de esto va al repo -----------------------------
+# Cadena de conexión de Supabase, secreto de sesión, PINs iniciales.
+.env
+.env.local
+.env*.local
+
+# Los PINs de la demo en texto plano.
+PINS-DEMO.txt
+
+# La base de datos local (PGlite) y los backups.
+data/
+backups/
+
+# Salidas generadas: reportes, paquetes.
+outputs/
+paquete/
+dist-scripts/
+
+# Sistema
+.DS_Store
+Thumbs.db

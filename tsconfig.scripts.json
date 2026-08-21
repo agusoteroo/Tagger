@@ -1,0 +1,17 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "outDir": "dist-scripts",
+    "target": "ES2022",
+    "jsx": "react-jsx",
+    "declaration": false,
+    "sourceMap": false,
+    "incremental": false,
+    "paths": { "@/*": ["./src/*"] }
+  },
+  "include": ["src/db/**/*.ts", "src/lib/**/*.ts", "scripts/seed*.ts", "scripts/backup.ts"],
+  "exclude": ["node_modules", "src/app", "src/components"]
+}
