@@ -14,15 +14,32 @@ import { diaLocal } from "./tiempo";
 export const DIMENSIONES = ["operario", "turno", "maquina", "frasco", "dia", "lote"] as const;
 export type Dimension = (typeof DIMENSIONES)[number];
 
-const COLUMNA: Record<Dimension, SQL<string>> = {
-  operario: sql<string>`${etiquetas.operarioNombre}`,
-  turno: sql<string>`${etiquetas.turno}`,
-  maquina: sql<string>`${etiquetas.maquinaNombre}`,
-  frasco: sql<string>`${etiquetas.frascoNombre}`,
-  lote: sql<string>`${etiquetas.loteCodigo}`,
-  // Dia LOCAL de la planta, no UTC: si no, el turno noche se parte en dos.
-  dia: diaLocal(etiquetas.creadoEn),
-};
+/**
+ * Columna por la que se agrupa cada dimension.
+ *
+ * Es una FUNCION y no una constante de modulo a proposito: la variante `dia`
+ * llama a diaLocal(), que valida la zona horaria. Como constante, esa validacion
+ * corria al IMPORTAR el modulo, y `next build` importa todas las rutas para
+ * recolectar su configuracion -- asi que una zona mal puesta rompia el build
+ * entero en vez de fallar al usarse.
+ */
+function columna(dim: Dimension): SQL<string> {
+  switch (dim) {
+    case "operario":
+      return sql<string>`${etiquetas.operarioNombre}`;
+    case "turno":
+      return sql<string>`${etiquetas.turno}`;
+    case "maquina":
+      return sql<string>`${etiquetas.maquinaNombre}`;
+    case "frasco":
+      return sql<string>`${etiquetas.frascoNombre}`;
+    case "lote":
+      return sql<string>`${etiquetas.loteCodigo}`;
+    case "dia":
+      // Dia LOCAL de la planta, no UTC: si no, el turno noche se parte en dos.
+      return diaLocal(etiquetas.creadoEn);
+  }
+}
 
 export function esDimension(v: string | null | undefined): v is Dimension {
   return !!v && (DIMENSIONES as readonly string[]).includes(v);
@@ -118,7 +135,7 @@ export async function porDimension(dim: Dimension, f: Filtros = {}): Promise<Fil
   if (!esDimension(dim)) {
     throw new ErrorNegocio(`Dimensión inválida. Válidas: ${DIMENSIONES.join(", ")}.`);
   }
-  const col = COLUMNA[dim];
+  const col = columna(dim);
 
   // SECUENCIAL, no en paralelo.
   //

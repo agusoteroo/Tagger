@@ -33,19 +33,24 @@ function csv(filas: unknown[][]): string {
  * Con la zona real, no con un offset fijo: no depende de la zona del servidor
  * (en Vercel es UTC) y respeta el horario de verano si algun dia vuelve.
  */
-const FORMATO = new Intl.DateTimeFormat("es-AR", {
-  timeZone: ZONA,
-  day: "2-digit",
-  month: "2-digit",
-  year: "numeric",
-  hour: "2-digit",
-  minute: "2-digit",
-  hour12: false,
-});
+// Perezoso: una zona invalida haria fallar el build en vez de la peticion.
+let formatoCache: Intl.DateTimeFormat | null = null;
+function formato(): Intl.DateTimeFormat {
+  formatoCache ??= new Intl.DateTimeFormat("es-AR", {
+    timeZone: ZONA,
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+  return formatoCache;
+}
 
 function local(iso: string | null): { fecha: string; hora: string } {
   if (!iso) return { fecha: "", hora: "" };
-  const partes = FORMATO.formatToParts(new Date(iso));
+  const partes = formato().formatToParts(new Date(iso));
   const g = (t: string) => partes.find((p) => p.type === t)?.value ?? "";
   return { fecha: `${g("day")}/${g("month")}/${g("year")}`, hora: `${g("hour")}:${g("minute")}` };
 }

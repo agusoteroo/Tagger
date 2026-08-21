@@ -14,7 +14,18 @@ import { sql, type SQL } from "drizzle-orm";
  * UTC del día siguiente, y si agrupáramos por UTC el turno noche se partiría
  * en dos días distintos.
  */
-export const ZONA = process.env.TZ_PLANTA ?? "America/Argentina/Buenos_Aires";
+
+const ZONA_POR_DEFECTO = "America/Argentina/Buenos_Aires";
+
+/**
+ * `||` y no `??` a propósito.
+ *
+ * `??` solo cae al valor por defecto con `null` o `undefined`. Una variable de
+ * entorno definida pero VACÍA da `""`, que con `??` pasaba de largo — y el
+ * build de Vercel fallaba con `TZ_PLANTA inválida: ""`. Una variable vacía es
+ * lo mismo que no tenerla.
+ */
+export const ZONA = process.env.TZ_PLANTA?.trim() || ZONA_POR_DEFECTO;
 
 /**
  * La zona va INTERPOLADA en el SQL, no como parámetro bindeado.
@@ -30,18 +41,32 @@ export const ZONA = process.env.TZ_PLANTA ?? "America/Argentina/Buenos_Aires";
  * entorno que definimos nosotros. Igual se valida, porque una env var mal
  * puesta no debería poder inyectar SQL.
  */
-function zonaSegura(): string {
-  if (!/^[A-Za-z0-9_+\-/]{1,64}$/.test(ZONA)) {
+function validar(zona: string): string {
+  if (!/^[A-Za-z0-9_+\-/]{1,64}$/.test(zona)) {
     throw new Error(
-      `TZ_PLANTA inválida: ${JSON.stringify(ZONA)}. ` +
-        `Tiene que ser un nombre de zona como "America/Argentina/Buenos_Aires".`
+      `TZ_PLANTA inválida: ${JSON.stringify(zona)}. ` +
+        `Tiene que ser un nombre de zona como "${ZONA_POR_DEFECTO}".`
     );
   }
-  return ZONA;
+  return zona;
 }
 
-/** `AT TIME ZONE 'zona'` listo para interpolar. */
-const EN_ZONA = sql.raw(`AT TIME ZONE '${zonaSegura()}'`);
+/**
+ * PEREZOSO, no una constante de módulo.
+ *
+ * Antes esto era `const EN_ZONA = sql.raw(...)`, que ejecuta la validación al
+ * IMPORTAR el módulo. `next build` importa todos los módulos de ruta para
+ * recolectar su configuración, así que una zona mal puesta rompía el build
+ * entero en "Collecting page data" en vez de fallar al usarse.
+ *
+ * Es el mismo error que la conexión a la base: nada de trabajo que pueda fallar
+ * en tiempo de importación.
+ */
+let enZonaCache: SQL | null = null;
+function enZona(): SQL {
+  enZonaCache ??= sql.raw(`AT TIME ZONE '${validar(ZONA)}'`);
+  return enZonaCache;
+}
 
 /**
  * Fecha local de la planta (YYYY-MM-DD) para una columna timestamptz.
@@ -51,12 +76,12 @@ const EN_ZONA = sql.raw(`AT TIME ZONE '${zonaSegura()}'`);
  * día deja de ser comparable como texto.
  */
 export function diaLocal(col: SQL | unknown): SQL<string> {
-  return sql<string>`((${col} ${EN_ZONA})::date)::text`;
+  return sql<string>`((${col} ${enZona()})::date)::text`;
 }
 
 /** Hoy, en fecha local de la planta. */
 export function hoyLocal(): SQL<string> {
-  return sql<string>`((now() ${EN_ZONA})::date)::text`;
+  return sql<string>`((now() ${enZona()})::date)::text`;
 }
 
 /**
@@ -70,9 +95,9 @@ export function hoyLocal(): SQL<string> {
  * Acá la fecha SÍ va como parámetro: viene del querystring, o sea del usuario.
  */
 export function inicioDelDia(fecha: string): SQL {
-  return sql`((${fecha}::date)::timestamp ${EN_ZONA})`;
+  return sql`((${fecha}::date)::timestamp ${enZona()})`;
 }
 
 export function finDelDia(fecha: string): SQL {
-  return sql`((${fecha}::date + 1)::timestamp ${EN_ZONA})`;
+  return sql`((${fecha}::date + 1)::timestamp ${enZona()})`;
 }
