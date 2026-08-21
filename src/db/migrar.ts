@@ -1,5 +1,5 @@
 import path from "node:path";
-import { db, motor } from "./index";
+import { db, motorActual } from "./index";
 
 /**
  * Aplica las migraciones de ./drizzle.
@@ -13,7 +13,7 @@ import { db, motor } from "./index";
 export async function migrar() {
   const carpeta = path.join(process.cwd(), "drizzle");
 
-  if (motor === "pglite") {
+  if (motorActual() === "pglite") {
     const { migrate } = await import("drizzle-orm/pglite/migrator");
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await migrate(db as any, { migrationsFolder: carpeta });

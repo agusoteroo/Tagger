@@ -5,6 +5,18 @@ import * as schema from "./schema";
 /**
  * Conexion a Postgres.
  *
+ * LA CONEXION ES PEREZOSA, y eso no es un detalle de estilo.
+ *
+ * `next build` importa todos los modulos de ruta para recolectar su
+ * configuracion. Si la conexion se creara al importar, el build fallaria en
+ * "Collecting page data" cada vez que DATABASE_URL no este disponible en tiempo
+ * de compilacion -- que es justo lo que pasa en Vercel antes de configurar las
+ * variables. Peor: un build que necesita la base de produccion para compilar
+ * ata el deploy a que la base este arriba.
+ *
+ * Con el proxy de abajo, importar este modulo no hace nada. La conexion se abre
+ * en la primera consulta de verdad.
+ *
  * Soporta dos destinos, segun como sea DATABASE_URL:
  *
  *   postgres://...   -> Postgres de verdad (Supabase en produccion)
@@ -12,8 +24,8 @@ import * as schema from "./schema";
  *
  * PGlite existe para desarrollo y tests: es Postgres real (no un emulador), asi
  * que valida el SQL, las funciones de fecha con zona horaria y las
- * restricciones igual que el servidor. Y no necesita Docker ni una base remota,
- * lo que hace que los tests corran en cualquier maquina sin preparar nada.
+ * restricciones igual que el servidor, sin necesitar Docker ni una base remota.
+ * Soporta UN solo proceso a la vez.
  *
  * IMPORTANTE sobre la cadena de Supabase:
  *
@@ -29,6 +41,9 @@ import * as schema from "./schema";
 
 const URL_DEFECTO_DEV = "pglite://./data/pg";
 
+type Db = ReturnType<typeof drizzlePg<typeof schema>>;
+type Conexion = { db: Db; cerrar: () => Promise<void>; motor: "postgres" | "pglite" };
+
 function url() {
   const u = process.env.DATABASE_URL;
   if (u) return u;
@@ -41,23 +56,21 @@ function url() {
   return URL_DEFECTO_DEV;
 }
 
-type Db = ReturnType<typeof drizzlePg<typeof schema>>;
-
-function crear(): { db: Db; cerrar: () => Promise<void>; motor: "postgres" | "pglite" } {
+function crear(): Conexion {
   const u = url();
 
   if (u.startsWith("pglite://") || u.startsWith("file:")) {
-    // Import sincronico via require: PGlite solo se carga si de verdad se usa,
-    // asi no entra en el bundle de produccion.
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { PGlite } = require("@electric-sql/pglite") as typeof import("@electric-sql/pglite");
     // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { drizzle: drizzlePglite } = require("drizzle-orm/pglite") as typeof import("drizzle-orm/pglite");
+    const { drizzle: drizzlePglite } =
+      require("drizzle-orm/pglite") as typeof import("drizzle-orm/pglite");
 
     const ruta = u.replace(/^pglite:\/\//, "").replace(/^file:/, "");
     const cliente = new PGlite(ruta || undefined);
     // Los dos drivers exponen la misma API para todo lo que usa este proyecto
-    // (select/insert/update/delete/transaction). El cast evita duplicar tipos.
+    // (select/insert/update/delete/transaction/execute). El cast evita duplicar
+    // tipos en toda la capa de datos.
     return {
       db: drizzlePglite(cliente, { schema }) as unknown as Db,
       cerrar: () => cliente.close(),
@@ -65,18 +78,17 @@ function crear(): { db: Db; cerrar: () => Promise<void>; motor: "postgres" | "pg
     };
   }
 
-  const esPooler = u.includes(":6543");
-  if (process.env.NODE_ENV === "production" && !esPooler) {
-    // Aviso, no error: en un VPS con un solo proceso la directa esta bien.
+  if (process.env.NODE_ENV === "production" && !u.includes(":6543")) {
+    // Aviso, no error: contra un Postgres con un solo proceso la directa está
+    // bien. En serverless agota las conexiones, y el sintoma es traicionero:
+    // anda con poco trafico y falla cuando hay uso real.
     console.warn(
       "[db] DATABASE_URL no apunta al pooler (:6543). En serverless eso agota las conexiones."
     );
   }
 
   const cliente = postgres(u, {
-    // Sin prepared statements: obligatorio con el pooler en modo transaccion.
     prepare: false,
-    // Pocas conexiones por instancia: son muchas instancias, no una grande.
     max: Number(process.env.DB_MAX_CONEXIONES ?? 3),
     idle_timeout: 20,
     connect_timeout: 15,
@@ -86,13 +98,41 @@ function crear(): { db: Db; cerrar: () => Promise<void>; motor: "postgres" | "pg
   return { db: drizzlePg(cliente, { schema }), cerrar: () => cliente.end(), motor: "postgres" };
 }
 
-// Next recarga los modulos en caliente en dev. Sin este singleton se abririan
+// Next recarga los modulos en caliente en dev. Sin el singleton se abririan
 // decenas de pools contra la misma base.
-const g = globalThis as unknown as { __conexion?: ReturnType<typeof crear> };
-const conexion = g.__conexion ?? crear();
-if (process.env.NODE_ENV !== "production") g.__conexion = conexion;
+const g = globalThis as unknown as { __conexion?: Conexion };
 
-export const db = conexion.db;
-export const cerrarConexion = conexion.cerrar;
-export const motor = conexion.motor;
+function conexion(): Conexion {
+  if (!g.__conexion) g.__conexion = crear();
+  return g.__conexion;
+}
+
+/**
+ * `db` es un proxy: importarlo no abre nada. La conexion se crea recien cuando
+ * alguien llama a un metodo (select, insert, transaction, execute...).
+ */
+export const db = new Proxy({} as Db, {
+  get(_destino, prop, receptor) {
+    const real = conexion().db as unknown as Record<string | symbol, unknown>;
+    const valor = real[prop];
+    return typeof valor === "function" ? valor.bind(real) : valor;
+  },
+  has(_destino, prop) {
+    return prop in (conexion().db as unknown as object);
+  },
+}) as Db;
+
+/** No abre la conexion si nunca se uso: cerrar algo que no existe es un no-op. */
+export async function cerrarConexion() {
+  if (!g.__conexion) return;
+  const c = g.__conexion;
+  g.__conexion = undefined;
+  await c.cerrar();
+}
+
+/** Qué motor quedó activo. Abre la conexión si hace falta. */
+export function motorActual() {
+  return conexion().motor;
+}
+
 export { schema };
