@@ -5,11 +5,8 @@ out/
 *.tsbuildinfo
 next-env.d.ts
 
-# --- SECRETOS Y DATOS: nada de esto va al repo -----------------------------
-# Cadena de conexión de Supabase, secreto de sesión, PINs iniciales.
-.env
-.env.local
-.env*.local
+# Vercel
+.vercel
 
 # Los PINs de la demo en texto plano.
 PINS-DEMO.txt
@@ -18,7 +15,10 @@ PINS-DEMO.txt
 data/
 backups/
 
-# Salidas generadas: reportes, paquetes.
+# Salidas generadas: reportes y el paquete portable.
+#
+# `paquete/` pesa ~164 MB porque incluye node.exe. Se me colo una vez al
+# reescribir este archivo, y GitHub avisa a partir de 50 MB por archivo.
 outputs/
 paquete/
 dist-scripts/
@@ -26,3 +26,15 @@ dist-scripts/
 # Sistema
 .DS_Store
 Thumbs.db
+
+# --- SECRETOS: al final, a propósito ---------------------------------------
+#
+# En git gana la ÚLTIMA regla que matchea. Estas van al final para que nada que
+# se agregue después pueda volver a incluir un .env por accidente — que es lo
+# que pasó cuando la CLI de Vercel appendeó su propio `.env*` después de la
+# excepción de la plantilla.
+#
+# `.env*` cubre todo: .env, .env.local, .env.produccion (que es lo que genera
+# `vercel env pull --environment=production`), .env.staging, etc.
+.env*
+!.env.example
