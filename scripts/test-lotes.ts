@@ -196,6 +196,70 @@ async function main() {
   ok("cierra en la caja 3 (2 válidas)", e3.lote.cerrado === an.lote.codigo);
   ok("los números de caja NO se reutilizan", e3.caja === 3, `caja=${e3.caja}`);
 
+  // -------------------------------------------------------------------------
+  // El turno se valida contra el catálogo.
+  //
+  // Antes solo se chequeaba que no estuviera vacío, y entraba cualquier texto.
+  // Una prueba mandó "Mañana" con la ñ mal codificada y quedó guardado
+  // "Ma�ana": las métricas agrupan POR turno, así que eso aparecía como un
+  // CUARTO turno para siempre y las horas de la planta dejaban de sumar.
+  // -------------------------------------------------------------------------
+  console.log("\n--- Turno inválido: se rechaza, no se guarda ---");
+
+  // La máquina necesita un lote ABIERTO para llegar a validar el turno. Sin
+  // esto el test daba verde por el motivo equivocado: fallaba antes, en "no
+  // tiene un lote abierto", y no probaba nada de lo que dice probar.
+  await limpiar();
+  await prepararLote({
+    maquinaId: maqs[0]!.id,
+    limite: 500,
+    limiteUnidad: "cajas",
+    actor: "test",
+  });
+
+  const conTurno = (turno: string) =>
+    crearEtiqueta({ maquinaId: maqs[0]!.id, operarioId: op.id, turno, cantidad: 10 });
+
+  for (const [caso, turno, esperado] of [
+    ["ñ mal codificada", "Ma�ana", "catálogo"],
+    ["turno inexistente", "Madrugada", "catálogo"],
+    ["distinta capitalización", "mañana", "catálogo"],
+    ["vacío", "   ", "Falta el turno"],
+  ] as const) {
+    let mensaje = "";
+    try {
+      await conTurno(turno);
+    } catch (e) {
+      mensaje = (e as Error).message;
+    }
+    // No alcanza con que lance: tiene que lanzar POR EL TURNO. Un error de otra
+    // cosa haría pasar el test sin haber ejercitado la validación.
+    ok(
+      `rechaza ${caso}`,
+      mensaje.includes(esperado),
+      mensaje ? mensaje.slice(0, 58) : "LA GUARDÓ"
+    );
+  }
+
+  // Y el valor que se guarda es el del catálogo, no el que vino en el pedido:
+  // así ni una variante de espacios crea un grupo aparte.
+  const conEspacios = await crearEtiqueta({
+    maquinaId: maqs[0]!.id,
+    operarioId: op.id,
+    turno: "  Mañana  ",
+    cantidad: 10,
+  });
+  ok(
+    "normaliza al nombre del catálogo",
+    conEspacios.turno === "Mañana",
+    JSON.stringify(conEspacios.turno)
+  );
+
+  const [fantasmas] = await db
+    .select({ n: sql<number>`count(distinct turno)::int` })
+    .from(etiquetas);
+  ok("no quedó ningún turno fantasma", fantasmas!.n === 1, `turnos distintos=${fantasmas!.n}`);
+
   // Dejar la base usable. Si no, el test siguiente se encuentra las máquinas
   // paradas y falla por algo que no tiene nada que ver con lo que prueba.
   await limpiar();

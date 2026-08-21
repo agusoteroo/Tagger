@@ -1,6 +1,6 @@
 import { and, desc, eq, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { auditoria, etiquetas, lotes, maquinas, operarios } from "@/db/schema";
+import { auditoria, etiquetas, lotes, maquinas, operarios, turnos } from "@/db/schema";
 import { ErrorNegocio } from "./errores";
 import { condiciones, type Filtros } from "./filtros";
 import { cerrarYAvanzarEnTx, limiteAlcanzado, progreso, type Tx } from "./lotes";
@@ -101,6 +101,36 @@ export async function crearEtiqueta(input: {
         const [op] = await tx.select().from(operarios).where(eq(operarios.id, input.operarioId));
         if (!op) throw new ErrorNegocio("El operario no existe.", 404);
 
+        /**
+         * El turno se valida contra el catálogo, igual que la máquina y el
+         * operario. Antes solo se chequeaba que no estuviera vacío, y eso deja
+         * entrar cualquier texto.
+         *
+         * No es teórico: una prueba mandó "Mañana" con la ñ mal codificada y
+         * quedó guardado "Ma�ana". La columna es texto libre, así que no
+         * protesta — pero las métricas agrupan POR turno, así que ese valor
+         * aparece como un CUARTO turno para siempre, y las horas de la planta
+         * dejan de sumar. Un dato que rompe el reporte y no da error es peor que
+         * uno que lo rompe de entrada.
+         */
+        const nombreTurno = input.turno.trim();
+        const [turnoOk] = await tx
+          .select({ nombre: turnos.nombre })
+          .from(turnos)
+          .where(and(eq(turnos.nombre, nombreTurno), eq(turnos.activo, true)));
+        if (!turnoOk) {
+          const validos = await tx
+            .select({ nombre: turnos.nombre })
+            .from(turnos)
+            .where(eq(turnos.activo, true))
+            .orderBy(turnos.orden);
+          throw new ErrorNegocio(
+            `El turno ${JSON.stringify(nombreTurno)} no está en el catálogo. ` +
+              `Válidos: ${validos.map((t) => t.nombre).join(", ") || "(ninguno cargado)"}.`,
+            400
+          );
+        }
+
         // Numero de caja siguiente. Las anuladas SI ocupan numero: el hueco en
         // la secuencia es la evidencia de que ahi hubo una caja.
         const [fila] = await tx
@@ -120,7 +150,10 @@ export async function crearEtiqueta(input: {
             maquinaNombre: lote.maquinaNombre,
             frascoNombre: lote.frascoNombre,
             operarioNombre: op.nombre,
-            turno: input.turno.trim(),
+            // El nombre del catálogo, no el que vino en el pedido: así ninguna
+            // variante de espacios o mayúsculas termina siendo un grupo aparte
+            // en las métricas.
+            turno: turnoOk.nombre,
           })
           .returning();
 
