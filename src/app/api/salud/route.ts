@@ -1,32 +1,40 @@
 import { sql } from "drizzle-orm";
 import { db } from "@/db";
-import { prepararBase } from "@/db/arranque";
+import { conLimite } from "@/lib/limite-tiempo";
 import { ZONA, hoyLocal } from "@/lib/tiempo";
-
-// Migraciones y (si se pide) siembra inicial, una sola vez por instancia.
-let preparado: Promise<void> | null = null;
 
 /**
  * GET /api/salud — chequeo de salud.
  *
- * No alcanza con responder 200: si la base no se puede leer, la app esta arriba
- * pero inservible. Asi que consulta de verdad.
+ * NO corre migraciones. Antes si, y estaba mal por dos razones:
  *
- * Tambien informa la zona horaria efectiva y el dia local que sale de ella.
- * Suena de mas, pero no lo es: las env vars marcadas "Sensitive" en Vercel no
- * se pueden volver a leer, ni por la CLI, asi que una TZ_PLANTA mal puesta era
- * invisible desde afuera. Un deploy se cayo justamente por eso. La zona no es
- * un secreto y ver que el dia local coincide con el de la planta es la unica
- * forma de comprobar que la variable llego bien.
+ * 1. En serverless no hay un arranque unico. Cada instancia fria corria el
+ *    migrador, o sea DDL desde una peticion HTTP, varias a la vez. Eso venia de
+ *    cuando esto iba a un contenedor largo en Fly, donde migrar al arrancar si
+ *    tenia sentido.
+ * 2. La carpeta drizzle/ con los .sql no viaja al bundle de la funcion: nada
+ *    en el codigo la importa, asi que el trazado de Next no la incluye. El
+ *    migrador buscaba archivos que no estaban ahi.
+ *
+ * Las migraciones se aplican al desplegar, con `npm run db:migrar`, contra la
+ * base y desde afuera. Este endpoint solo comprueba que la base responda.
+ *
+ * Tambien informa la zona horaria efectiva: las env vars marcadas Sensitive en
+ * Vercel no se pueden volver a leer, ni por la CLI, asi que una TZ_PLANTA mal
+ * puesta era invisible desde afuera (y tumbo un deploy). La zona no es secreta.
  */
-export async function GET() {
-  try {
-    preparado ??= prepararBase();
-    await preparado;
 
-    // Una sola consulta: dos viajes de red no hacen falta para esto.
-    const filas = await db.execute<{ n: number; dia: string }>(
-      sql`select (select count(*)::int from etiquetas) as n, ${hoyLocal()} as dia`
+/** Presupuesto propio, bien por debajo del maximo de la funcion. */
+const MS_LIMITE = 8000;
+
+export async function GET() {
+  const arranque = Date.now();
+  try {
+    // Una sola consulta: el conteo y el dia local en el mismo viaje.
+    const filas = await conLimite("consulta a la base", MS_LIMITE, () =>
+      db.execute<{ n: number; dia: string }>(
+        sql`select (select count(*)::int from etiquetas) as n, ${hoyLocal()} as dia`
+      )
     );
     const fila = Array.isArray(filas)
       ? filas[0]
@@ -39,16 +47,37 @@ export async function GET() {
         zona: ZONA,
         // El dia local de la planta segun esa zona, calculado por Postgres.
         diaLocal: fila?.dia ?? null,
+        ms: Date.now() - arranque,
+        region: process.env.VERCEL_REGION ?? null,
         ts: new Date().toISOString(),
       },
       { headers: { "cache-control": "no-store" } }
     );
   } catch (e) {
-    console.error("[salud] la base no responde:", e);
-    // El detalle va al log, no a la respuesta: el mensaje de una falla de
-    // conexion puede incluir el host y el usuario de la base.
-    return Response.json({ ok: false, error: "base no disponible" }, { status: 503 });
+    const detalle = e instanceof Error ? e.message : String(e);
+    console.error(`[salud] fallo tras ${Date.now() - arranque} ms:`, e);
+    return Response.json(
+      {
+        ok: false,
+        // El detalle SI va en la respuesta de este endpoint. Es el unico que lo
+        // hace, y es a proposito: sin esto, diagnosticar una base que no
+        // responde en produccion es a ciegas. No incluye la cadena de conexion
+        // porque el mensaje del driver no la trae; si algun dia la trajera,
+        // esto habria que recortarlo.
+        error: detalle.slice(0, 300),
+        zona: ZONA,
+        ms: Date.now() - arranque,
+        region: process.env.VERCEL_REGION ?? null,
+      },
+      { status: 503, headers: { "cache-control": "no-store" } }
+    );
   }
 }
 
 export const dynamic = "force-dynamic";
+
+/**
+ * Techo de la funcion. El default de Vercel dejo que una peticion colgada
+ * quemara 300 segundos; un chequeo de salud que tarda 15 ya es una falla.
+ */
+export const maxDuration = 15;

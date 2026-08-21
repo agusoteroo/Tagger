@@ -18,7 +18,8 @@
     "test:export": "tsx --env-file-if-exists=.env.local scripts/test-export.ts",
     "test:lotes": "tsx --env-file-if-exists=.env.local scripts/test-lotes.ts",
     "demo:preparar": "tsx --env-file-if-exists=.env.local scripts/preparar-demo.ts",
-    "test:tz": "tsx scripts/test-tz.ts"
+    "test:tz": "tsx scripts/test-tz.ts",
+    "db:migrar": "tsx --env-file-if-exists=.env.local scripts/migrar.ts"
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.5.5",
