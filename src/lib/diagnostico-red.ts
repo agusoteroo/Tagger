@@ -114,5 +114,23 @@ export async function diagnosticarRed(url: string | undefined): Promise<PasoDiag
     })
   );
 
+  // 4. El driver de verdad. Los tres pasos de arriba pueden dar bien y aun asi
+  //    postgres.js no conectar: credenciales mal, o la libreria empaquetada por
+  //    el bundler y con los sockets roto. Este paso trae SU error, textual, que
+  //    es lo que no se veia cuando la peticion simplemente no volvia.
+  pasos.push(
+    await medir("driver", 12000, async () => {
+      const { default: postgres } = await import("postgres");
+      const cliente = postgres(url, { prepare: false, max: 1, connect_timeout: 8, onnotice: () => {} });
+      try {
+        const r = await cliente`select 1 as uno, current_user as usuario, version() as v`;
+        const f = r[0] as { uno: number; usuario: string; v: string } | undefined;
+        return `select 1 -> ${f?.uno}, usuario=${f?.usuario}, ${String(f?.v).slice(0, 40)}`;
+      } finally {
+        await cliente.end({ timeout: 2 });
+      }
+    })
+  );
+
   return pasos;
 }

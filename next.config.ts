@@ -3,6 +3,17 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   /**
+   * postgres.js va como externa, sin empaquetar.
+   *
+   * Es una libreria de Node pura: abre sockets, negocia TLS y usa crypto. Next
+   * empaqueta el codigo de servidor, y empaquetada la conexion no se
+   * establecia -- la peticion se colgaba hasta que Vercel la mataba por
+   * tiempo, sin un solo error. Local no se notaba porque los scripts corren con
+   * tsx, sin bundler.
+   */
+  serverExternalPackages: ["postgres"],
+
+  /**
    * Fija la raiz del workspace.
    *
    * Sin esto, Next sube por el arbol de directorios buscando un lockfile,
