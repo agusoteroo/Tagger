@@ -11,6 +11,7 @@ import { cerrarConexion, db } from "../src/db";
 import { etiquetas, frascos, lotes, maquinas, operarios, turnos } from "../src/db/schema";
 import { migrar } from "../src/db/migrar";
 import { ZONA } from "../src/lib/tiempo";
+import { requiereBaseDePrueba } from "./_requiere-postgres";
 
 if (process.env.NODE_ENV === "production") {
   console.error("Negado en produccion.");
@@ -50,6 +51,7 @@ function local(diasAtras: number, horaLocal: number, minuto: number) {
 }
 
 async function main() {
+  requiereBaseDePrueba("db:demo");
   await migrar();
   const ops = await db.select().from(operarios);
   const maqs = await db.select().from(maquinas);

@@ -17,7 +17,7 @@ import { and, eq, sql } from "drizzle-orm";
 import { cerrarConexion, db } from "../src/db";
 import { etiquetas, lotes, maquinas, operarios } from "../src/db/schema";
 import { cerrarLoteManual, prepararLote } from "../src/lib/lotes";
-import { requierePostgres } from "./_requiere-postgres";
+import { requiereBaseDePrueba, requierePostgres } from "./_requiere-postgres";
 
 const PROCESOS = 6;
 const POR_PROCESO = 20;
@@ -91,6 +91,7 @@ function resumirWorkers(rs: Resultado[]) {
 }
 
 async function main() {
+  requiereBaseDePrueba("test:concurrencia");
   requierePostgres("test:concurrencia");
 
   const [op] = await db.select().from(operarios).limit(1);

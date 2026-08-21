@@ -17,6 +17,7 @@ import { cerrarConexion, db } from "../src/db";
 import { migrar } from "../src/db/migrar";
 import { etiquetas } from "../src/db/schema";
 import { setPin, type Rol } from "../src/lib/auth";
+import { requiereBaseDePrueba } from "./_requiere-postgres";
 
 const esWin = process.platform === "win32";
 const npx = esWin ? "npx.cmd" : "npx";
@@ -43,6 +44,7 @@ function ponerEnEnv(clave: string, valor: string) {
 }
 
 async function main() {
+  requiereBaseDePrueba("demo:preparar");
   console.log("\nPreparando la demo...\n");
 
   // --- 1. Datos de ejemplo -------------------------------------------------

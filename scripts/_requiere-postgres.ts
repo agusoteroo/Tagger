@@ -21,3 +21,61 @@ export function requierePostgres(nombre: string) {
   );
   process.exit(1);
 }
+
+/**
+ * Traba para no ensuciar una base que esta en uso.
+ *
+ * Los tests escriben: crean lotes, etiquetas, cambian PINs. Mientras la unica
+ * base era local eso no importaba. Ahora DATABASE_URL apunta a la Supabase de
+ * produccion, y correr `npm test` le mete cientos de etiquetas de prueba a la
+ * base que el cliente va a mirar. Ya paso: 168 etiquetas y un lote con limite
+ * 1.000.000 quedaron ahi.
+ *
+ * PGlite y localhost pasan libres. Cualquier otra base pide confirmacion
+ * explicita, igual que reset.ts.
+ *
+ * Lo prolijo de verdad es una segunda base para pruebas -- el plan gratuito de
+ * Supabase permite dos proyectos -- y ahi esta traba no molesta nunca.
+ */
+export function requiereBaseDePrueba(nombre: string) {
+  const url = process.env.DATABASE_URL?.trim() || "pglite://./data/pg";
+
+  const esLocal =
+    url.startsWith("pglite://") ||
+    url.startsWith("file:") ||
+    url.includes("localhost") ||
+    url.includes("127.0.0.1");
+
+  if (esLocal || process.env.BASE_DE_PRUEBA === "si") return;
+
+  const host = (() => {
+    try {
+      return new URL(url).hostname;
+    } catch {
+      return "(host ilegible)";
+    }
+  })();
+
+  console.error(
+    `
+${nombre} escribe en la base, y DATABASE_URL apunta a una base remota:
+
+` +
+      `    ${host}
+
+` +
+      `  Si es la base de produccion, esto le deja lotes y etiquetas de prueba
+` +
+      `  adentro. Si de verdad querés escribir ahí, confirmalo:
+
+` +
+      `    BASE_DE_PRUEBA=si npm run ${nombre}
+
+` +
+      `  Lo mejor es tener un segundo proyecto de Supabase solo para pruebas: el
+` +
+      `  plan gratuito permite dos, y así esta traba no molesta nunca.
+`
+  );
+  process.exit(1);
+}

@@ -1,5 +1,13 @@
 # Despliegue en la nube (Vercel + Supabase)
 
+La app corre en **Vercel** (funciones serverless en `gru1`, São Paulo) y la base
+en **Supabase** (Postgres 17, `sa-east-1`, São Paulo). Las dos en la misma
+región a propósito.
+
+Medido en producción: `/api/salud` tarda **108 ms en frío y 6 ms en caliente**.
+Desde una máquina en Argentina contra la misma base, la misma consulta tardaba
+755 ms — la diferencia es tener la función al lado de la base.
+
 ## La región de las funciones importa
 
 `vercel.json` fija las funciones en **`gru1` (São Paulo)**, la misma región que
@@ -17,6 +25,117 @@ Si algún día se cambia la región de Supabase, hay que cambiar esta también.
 > el archivo contra su schema y rechaza el deploy antes de compilar — se ve como
 > un build de `0ms` con estado Error, sin logs. Por eso esta explicación está
 > acá y no en el archivo.
+
+## Variables de entorno
+
+La única imprescindible es `DATABASE_URL`, y tiene que ser el **pooler en modo
+transacción, puerto 6543**:
+
+```
+postgresql://postgres.PROYECTO:PASSWORD@aws-0-sa-east-1.pooler.supabase.com:6543/postgres
+```
+
+No la conexión directa (5432): cada invocación de función abre su propia
+conexión y el límite de directas se agota enseguida. El código avisa por log si
+la URL no tiene `:6543`.
+
+Las demás son opcionales y todas tienen default: `TZ_PLANTA`,
+`DB_MAX_CONEXIONES`, `SESSION_SECRET`, `MODO_DEMO`, `SEMBRAR_SI_VACIO`,
+`PIN_*_INICIAL`.
+
+> **No las marques "Sensitive" si no son secretas.** Una variable Sensitive no
+> se puede volver a leer, ni desde la CLI: `vercel env pull` devuelve
+> literalmente `[SENSITIVE]`. `TZ_PLANTA` marcada Sensitive tumbó un deploy y no
+> había forma de ver qué tenía adentro. Por eso `/api/salud` informa la zona
+> efectiva y el tamaño del pool.
+
+## Aplicar las migraciones
+
+**Desde afuera, antes de desplegar** un cambio de esquema:
+
+```bash
+npm run db:migrar
+```
+
+Tarda medio segundo y es idempotente. Antes esto lo hacía `/api/salud` en cada
+instancia fría, y estaba mal por dos razones: era DDL disparado por una petición
+HTTP con varias instancias compitiendo, y la carpeta `drizzle/` con los `.sql`
+**no viaja al bundle de la función** (nada en el código la importa, así que el
+trazado de Next no la incluye).
+
+## Desplegar
+
+```bash
+npx vercel --prod
+```
+
+## Verificar que quedó bien
+
+```bash
+npx vercel curl https://TU-DEPLOY.vercel.app/api/salud
+```
+
+Devuelve la zona horaria efectiva, el día local que sale de ella, el motor, el
+**tamaño del pool** y la región. Los cinco valores están ahí porque cada uno
+falló alguna vez de una forma que desde afuera se veía igual: "no responde".
+
+Si algo anda mal, el diagnóstico de red paso por paso:
+
+```bash
+npx vercel curl "https://TU-DEPLOY.vercel.app/api/salud?diag=1"
+```
+
+Corre DNS, TCP crudo, el handshake SSL del protocolo de Postgres y una consulta
+con el driver de verdad, cada uno con su propio límite, y dice cuál falló. Nunca
+devuelve la contraseña ni la cadena de conexión.
+
+## Correr los tests sin ensuciar producción
+
+Los tests **escriben**: crean lotes, etiquetas, cambian PINs. Como
+`DATABASE_URL` apunta a la Supabase de producción, `npm test` le mete datos de
+prueba a la base que el cliente va a mirar. Ya pasó una vez.
+
+Por eso hay una traba: contra una base remota los scripts se niegan a correr
+salvo que se confirme.
+
+```bash
+BASE_DE_PRUEBA=si npm test
+```
+
+Lo prolijo de verdad es **un segundo proyecto de Supabase solo para pruebas** —
+el plan gratuito permite dos — y así la traba no molesta nunca.
+
+## Deployment Protection
+
+Vercel arranca los proyectos nuevos con **Vercel Authentication** prendida: toda
+URL redirige al login de Vercel (302 a `vercel.com/sso-api`). Eso significa que
+**nadie sin cuenta en el proyecto puede abrir la app**, ni el cliente.
+
+Para que el cliente entre hay que apagarla en
+*Project Settings → Deployment Protection*.
+
+Mientras esté prendida, se puede verificar desde acá con `npx vercel curl`, que
+usa el bypass de la CLI.
+
+## Las trampas que ya nos costaron un deploy
+
+Están todas arregladas y con test de regresión, pero la forma en que fallan se
+repite, así que vale tenerlas anotadas:
+
+| Qué pasó | Cómo se veía | Por qué |
+|---|---|---|
+| `TZ_PLANTA=""` | build cae en "Collecting page data" | `??` no cae al default con string vacío |
+| `DB_MAX_CONEXIONES=""` | petición colgada 300 s, **sin un solo log** | `Number("")` es `0`: pool de cero conexiones, encola para siempre |
+| `output: "standalone"` | `ENOENT: next-server.js.nft.json` | era para Docker; en Vercel le mueve los archivos de trazado |
+| clave `"//"` en `vercel.json` | build de 0 ms, Error, sin logs | Vercel valida contra su schema |
+| trabajo al importar un módulo | build roto en vez de petición fallida | `next build` importa todas las rutas |
+| `Promise.all` de consultas | endpoint de 122 ms pasó a colgarse minutos | con pool chico, las consultas pelean por conexiones |
+
+Las dos primeras son el mismo bug —  **una variable de entorno definida pero
+vacía** — y la segunda es peor precisamente porque no falla: un valor inválido
+que rompe fuerte se arregla en minutos, uno que cuelga en silencio se busca por
+horas. Ahora todas las variables se leen por `src/lib/entorno.ts`, que rechaza
+el vacío y avisa por log cuando descarta un valor.
 
 ---
 

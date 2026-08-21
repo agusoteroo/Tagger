@@ -12,6 +12,7 @@ import { etiquetas, lotes, maquinas, operarios, frascos } from "../src/db/schema
 import { migrar } from "../src/db/migrar";
 import { crearEtiqueta } from "../src/lib/etiquetas";
 import { cancelarLotePreparado, cerrarLoteManual, prepararLote } from "../src/lib/lotes";
+import { requiereBaseDePrueba } from "./_requiere-postgres";
 
 let fallas = 0;
 function ok(nombre: string, cond: boolean, extra = "") {
@@ -36,6 +37,7 @@ async function estadoDe(id: number) {
 }
 
 async function main() {
+  requiereBaseDePrueba("test:lotes");
   await migrar();
   const [op] = await db.select().from(operarios).limit(1);
   const maqs = await db.select().from(maquinas);

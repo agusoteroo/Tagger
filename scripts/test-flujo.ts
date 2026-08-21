@@ -6,7 +6,7 @@
  */
 import { cerrarConexion } from "../src/db";
 import { setPin } from "../src/lib/auth";
-import { requierePostgres } from "./_requiere-postgres";
+import { requiereBaseDePrueba, requierePostgres } from "./_requiere-postgres";
 
 const B = "http://127.0.0.1:3100";
 let cookie = "";
@@ -59,6 +59,7 @@ async function loteAbiertoEn(maquinaId: number) {
 }
 
 async function main() {
+  requiereBaseDePrueba("test:flujo");
   requierePostgres("test:flujo");
 
   // Preparación. Este test no puede depender de lo que dejó otro: fija sus

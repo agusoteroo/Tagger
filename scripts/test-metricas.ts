@@ -16,6 +16,7 @@ import { etiquetas, lotes, operarios } from "../src/db/schema";
 import { migrar } from "../src/db/migrar";
 import { porDimension, serieDiaria, totales } from "../src/lib/metricas";
 import { ZONA } from "../src/lib/tiempo";
+import { requiereBaseDePrueba } from "./_requiere-postgres";
 
 let fallas = 0;
 function ok(nombre: string, cond: boolean, extra = "") {
@@ -88,6 +89,7 @@ async function asegurarFixture() {
 }
 
 async function main() {
+  requiereBaseDePrueba("test:metricas");
   await migrar();
   const armado = await asegurarFixture();
 
