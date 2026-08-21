@@ -1,17 +1,4 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-
-  "//": [
-    "Las funciones corren en gru1 (Sao Paulo), la MISMA region que la base de",
-    "Supabase. Por defecto Vercel las pone en iad1 (Washington), y ahi cada",
-    "consulta cruza el continente.",
-    "",
-    "Importa mucho mas de lo que parece: generar una etiqueta hace varias",
-    "consultas dentro de una transaccion, y esos viajes se suman uno atras del",
-    "otro. Con la funcion y la base en la misma region son milisegundos; con la",
-    "funcion en Washington, cada etiqueta se va arriba del segundo.",
-    "",
-    "Si algun dia se cambia la region de Supabase, hay que cambiar esta tambien."
-  ],
   "regions": ["gru1"]
 }

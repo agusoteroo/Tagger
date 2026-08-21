@@ -1,4 +1,26 @@
-# Despliegue en la nube (Fly.io)
+# Despliegue en la nube (Vercel + Supabase)
+
+## La región de las funciones importa
+
+`vercel.json` fija las funciones en **`gru1` (São Paulo)**, la misma región que
+la base de Supabase.
+
+Por defecto Vercel las pone en `iad1` (Washington), y ahí cada consulta cruza el
+continente. Importa más de lo que parece: generar una etiqueta hace varias
+consultas dentro de una transacción, y esos viajes se suman uno atrás del otro.
+Con la función y la base en la misma región son milisegundos; con la función en
+Washington, cada etiqueta se va arriba del segundo.
+
+Si algún día se cambia la región de Supabase, hay que cambiar esta también.
+
+> `vercel.json` **no admite comentarios ni claves desconocidas**. Vercel valida
+> el archivo contra su schema y rechaza el deploy antes de compilar — se ve como
+> un build de `0ms` con estado Error, sin logs. Por eso esta explicación está
+> acá y no en el archivo.
+
+---
+
+# (Histórico) Despliegue en Fly.io
 
 Decisión del cliente: la app va en la nube, para consultar dashboards desde
 cualquier computadora sin depender de un equipo en la planta.
