@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import { db } from "@/db";
+import { diagnosticarRed } from "@/lib/diagnostico-red";
 import { conLimite } from "@/lib/limite-tiempo";
 import { ZONA, hoyLocal } from "@/lib/tiempo";
 
@@ -27,8 +28,23 @@ import { ZONA, hoyLocal } from "@/lib/tiempo";
 /** Presupuesto propio, bien por debajo del maximo de la funcion. */
 const MS_LIMITE = 8000;
 
-export async function GET() {
+export async function GET(pedido: Request) {
   const arranque = Date.now();
+
+  /**
+   * ?diag=1 -> diagnostico de red paso por paso (dns, tcp, handshake de
+   * Postgres) en vez de la consulta. No devuelve credenciales, solo host,
+   * puerto y que paso en cada tramo. Es la unica forma de distinguir "no
+   * resuelve el nombre" de "no hay ruta" de "la consulta es lenta" cuando lo
+   * unico que se ve desde afuera es que la peticion no vuelve.
+   */
+  if (new URL(pedido.url).searchParams.get("diag") === "1") {
+    const pasos = await diagnosticarRed(process.env.DATABASE_URL);
+    return Response.json(
+      { ok: pasos.every((p) => p.ok), zona: ZONA, region: process.env.VERCEL_REGION ?? null, pasos },
+      { status: pasos.every((p) => p.ok) ? 200 : 503, headers: { "cache-control": "no-store" } }
+    );
+  }
   try {
     // Una sola consulta: el conteo y el dia local en el mismo viaje.
     const filas = await conLimite("consulta a la base", MS_LIMITE, () =>
@@ -80,4 +96,4 @@ export const dynamic = "force-dynamic";
  * Techo de la funcion. El default de Vercel dejo que una peticion colgada
  * quemara 300 segundos; un chequeo de salud que tarda 15 ya es una falla.
  */
-export const maxDuration = 15;
+export const maxDuration = 30;
