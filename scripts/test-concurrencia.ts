@@ -29,13 +29,25 @@ async function crudo<T = Record<string, unknown>>(q: ReturnType<typeof sql>): Pr
   return (Array.isArray(r) ? r : ((r as { rows?: T[] }).rows ?? [])) as T[];
 }
 
+type Resultado = { ok: number; rechazos: number; error?: string };
+
+/**
+ * Devuelve lo que reporto cada worker.
+ *
+ * Antes esto descartaba stdout y solo mostraba stderr si el proceso salia con
+ * codigo != 0. Los workers atrapan sus errores y salen con 0, asi que un worker
+ * que no escribio NADA se veia igual que uno exitoso -- y el test decia
+ * "grabadas 20 de 120" sin ninguna pista de por que.
+ */
 function correrWorkers(modo: "nuevo" | "viejo", maquinaId: number, operarioId: number) {
   const tareas = Array.from({ length: PROCESOS }, () => {
-    return new Promise<void>((resolve, reject) => {
+    return new Promise<Resultado>((resolve, reject) => {
       const p = spawn(
         process.platform === "win32" ? "npx.cmd" : "npx",
         [
           "tsx",
+          // El sub-proceso tampoco lee .env.local por su cuenta.
+          "--env-file-if-exists=.env.local",
           "scripts/worker-etiquetas.ts",
           modo,
           String(maquinaId),
@@ -45,14 +57,37 @@ function correrWorkers(modo: "nuevo" | "viejo", maquinaId: number, operarioId: n
         { stdio: ["ignore", "pipe", "pipe"], shell: process.platform === "win32" }
       );
       let err = "";
+      let out = "";
       p.stderr.on("data", (d) => (err += d.toString()));
+      p.stdout.on("data", (d) => (out += d.toString()));
       p.on("close", (code) => {
-        if (code === 0) resolve();
-        else reject(new Error(`worker salió con ${code}: ${err.slice(0, 400)}`));
+        if (code !== 0) return reject(new Error(`worker salió con ${code}: ${err.slice(0, 400)}`));
+        try {
+          const r = JSON.parse(out.trim().split(/\r?\n/).filter(Boolean).pop() ?? "{}");
+          resolve({ ok: r.ok ?? 0, rechazos: r.rechazos ?? 0, error: err.trim() || undefined });
+        } catch {
+          resolve({ ok: 0, rechazos: 0, error: (err || out).slice(0, 400) });
+        }
       });
     });
   });
   return Promise.all(tareas);
+}
+
+/** Muestra que hizo cada worker. Sin esto, un worker que fallo pasa inadvertido. */
+function resumirWorkers(rs: Resultado[]) {
+  const ok = rs.reduce((a, r) => a + r.ok, 0);
+  const rech = rs.reduce((a, r) => a + r.rechazos, 0);
+  console.log(`  workers: ${rs.length}  |  escribieron ${ok}  |  rechazos ${rech}`);
+  const conError = rs.filter((r) => r.error);
+  if (conError.length) {
+    console.log(`  ${conError.length} worker(s) reportaron errores:`);
+    for (const r of conError.slice(0, 2)) {
+      console.log(`    ok=${r.ok} rechazos=${r.rechazos}`);
+      console.log(`    ${r.error!.replace(/\s+/g, " ").slice(0, 400)}`);
+    }
+  }
+  console.log("");
 }
 
 async function main() {
@@ -158,7 +193,7 @@ async function main() {
   console.log(`  ${PROCESOS} procesos x ${POR_PROCESO} etiquetas = ${TOTAL} cajas esperadas\n`);
 
   const t0 = process.hrtime.bigint();
-  await correrWorkers("nuevo", maq.id, op.id);
+  resumirWorkers(await correrWorkers("nuevo", maq.id, op.id));
   const ms = Number(process.hrtime.bigint() - t0) / 1e6;
 
   const dup = await crudo<{ caja: number; n: number }>(sql`

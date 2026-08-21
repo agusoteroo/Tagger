@@ -45,7 +45,7 @@ async function main() {
     await cerrarConexion();
   }
 
-  execFileSync(esWin ? "npx.cmd" : "npx", ["tsx", "src/db/seed.ts"], {
+  execFileSync(esWin ? "npx.cmd" : "npx", ["tsx", "--env-file-if-exists=.env.local", "src/db/seed.ts"], {
     stdio: "inherit",
     shell: esWin,
   });

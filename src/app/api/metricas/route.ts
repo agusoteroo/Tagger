@@ -16,13 +16,12 @@ export async function GET(req: Request) {
     const dim = esDimension(pedida) ? pedida : "operario";
     const f = filtrosDeUrl(u);
 
-    // Las tres consultas son independientes: en paralelo, no una atras de otra.
-    // Contra una base remota eso es la diferencia entre 3 viajes y 1.
-    const [tot, filas, serie] = await Promise.all([
-      totales(f),
-      porDimension(dim, f),
-      dim === "dia" ? Promise.resolve(undefined) : serieDiaria(f),
-    ]);
+    // Secuencial a proposito: ver el comentario en porDimension(). Abanicar
+    // estas consultas con un pool chico las hace pelearse por conexiones y el
+    // endpoint se cuelga. Secuencial son ~120 ms en total.
+    const tot = await totales(f);
+    const filas = await porDimension(dim, f);
+    const serie = dim === "dia" ? undefined : await serieDiaria(f);
 
     return {
       dimension: dim,

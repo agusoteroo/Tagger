@@ -209,7 +209,8 @@ async function tablaLotes(f: Filtros): Promise<string> {
 
 // ---------------------------------------------------------------------------
 export async function generarReporte(f: Filtros): Promise<{ html: string; nombreArchivo: string }> {
-  const [t, serie] = await Promise.all([totales(f), serieDiaria(f)]);
+  const t = await totales(f);
+  const serie = await serieDiaria(f);
   const generado = local(new Date().toISOString());
 
   const periodo =
@@ -256,15 +257,14 @@ export async function generarReporte(f: Filtros): Promise<{ html: string; nombre
   const tarjeta = (rotulo: string, valor: string, sub = "", clase = "") =>
     `<div class="tarjeta ${clase}"><div class="rotulo">${esc(rotulo)}</div><div class="valor">${valor}</div>${sub ? `<div class="sub">${esc(sub)}</div>` : ""}</div>`;
 
-  // Las cuatro dimensiones y los lotes se piden en paralelo: son consultas
-  // independientes y contra una base remota la latencia se suma.
-  const [porOperario, porTurno, porMaquina, porFrasco, htmlLotes] = await Promise.all([
-    porDimension("operario", f),
-    porDimension("turno", f),
-    porDimension("maquina", f),
-    porDimension("frasco", f),
-    tablaLotes(f),
-  ]);
+  // Secuencial: ver el comentario en porDimension(). El paralelo con un pool
+  // chico se cuelga, y estas consultas son lo bastante rapidas como para que no
+  // haya nada que ganar.
+  const porOperario = await porDimension("operario", f);
+  const porTurno = await porDimension("turno", f);
+  const porMaquina = await porDimension("maquina", f);
+  const porFrasco = await porDimension("frasco", f);
+  const htmlLotes = await tablaLotes(f);
   const tablas = {
     operario: tabla("Producción por operario", "Operario", porOperario),
     turno: tabla("Producción por turno", "Turno", porTurno),

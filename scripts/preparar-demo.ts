@@ -50,7 +50,7 @@ async function main() {
   const [{ n: cuantas }] = await db.select({ n: sql<number>`count(*)::int` }).from(etiquetas);
   if (cuantas < 200) {
     console.log("  Generando producción de ejemplo...");
-    execFileSync(npx, ["tsx", "scripts/seed-demo.ts"], { stdio: "inherit", shell: esWin });
+    execFileSync(npx, ["tsx", "--env-file-if-exists=.env.local", "scripts/seed-demo.ts"], { stdio: "inherit", shell: esWin });
   } else {
     console.log(`  Ya hay ${cuantas} etiquetas cargadas, no genero más.`);
   }

@@ -60,35 +60,35 @@ export async function GET() {
       .where(eq(maquinas.activa, true))
       .orderBy(asc(maquinas.nombre));
 
-    // El resto son consultas independientes: van todas en paralelo.
-    const [cola, listaOperarios, listaTurnos, listaFrascos, pendientes, pins] = await Promise.all([
-      colaPorMaquina(),
-      db
-        .select({ id: operarios.id, nombre: operarios.nombre })
-        .from(operarios)
-        .where(eq(operarios.activo, true))
-        .orderBy(asc(operarios.nombre)),
-      db
-        .select({ id: turnos.id, nombre: turnos.nombre })
-        .from(turnos)
-        .where(eq(turnos.activo, true))
-        .orderBy(asc(turnos.orden)),
-      db
-        .select({
-          id: frascos.id,
-          nombre: frascos.nombre,
-          cantidadEstandar: frascos.cantidadEstandar,
-          prefijoLote: frascos.prefijoLote,
-        })
-        .from(frascos)
-        .where(eq(frascos.activo, true))
-        .orderBy(asc(frascos.nombre)),
-      db
-        .select({ n: sql<number>`count(*)::int` })
-        .from(etiquetas)
-        .where(and(eq(etiquetas.estadoCalidad, "pendiente"), eq(etiquetas.anulada, false))),
-      pinsConfigurados(),
-    ]);
+    // Secuenciales, no en paralelo. Ver el comentario en metricas.ts: abanicar
+    // consultas con un pool chico las hace pelearse por conexiones, y sale mas
+    // lento (o se cuelga) que hacerlas una atras de otra.
+    const cola = await colaPorMaquina();
+    const listaOperarios = await db
+      .select({ id: operarios.id, nombre: operarios.nombre })
+      .from(operarios)
+      .where(eq(operarios.activo, true))
+      .orderBy(asc(operarios.nombre));
+    const listaTurnos = await db
+      .select({ id: turnos.id, nombre: turnos.nombre })
+      .from(turnos)
+      .where(eq(turnos.activo, true))
+      .orderBy(asc(turnos.orden));
+    const listaFrascos = await db
+      .select({
+        id: frascos.id,
+        nombre: frascos.nombre,
+        cantidadEstandar: frascos.cantidadEstandar,
+        prefijoLote: frascos.prefijoLote,
+      })
+      .from(frascos)
+      .where(eq(frascos.activo, true))
+      .orderBy(asc(frascos.nombre));
+    const pendientes = await db
+      .select({ n: sql<number>`count(*)::int` })
+      .from(etiquetas)
+      .where(and(eq(etiquetas.estadoCalidad, "pendiente"), eq(etiquetas.anulada, false)));
+    const pins = await pinsConfigurados();
 
     const conProgreso = maqs.map((m) => {
       if (!m.loteId) {

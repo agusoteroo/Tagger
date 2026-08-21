@@ -28,21 +28,35 @@ async function auditar(
   });
 }
 
+/**
+ * Identificador de clase para los advisory locks de este proyecto.
+ * Postgres tiene UN espacio global de advisory locks, asi que conviene
+ * namespacearlos para no chocar con otra cosa que use la misma base.
+ */
+const CLASE_LOCK_LOTE = 8421;
+
 // ---------------------------------------------------------------------------
 // Crear etiqueta. ESTA es la funcion que impide dos cajas con el mismo numero.
 //
-// En SQLite la defensa era `BEGIN IMMEDIATE`: tomaba el lock de escritura antes
-// de leer MAX(caja). Postgres no tiene eso, asi que la defensa es la otra que ya
-// existia, y que era la de verdad importante:
+// Tres capas, y cada una esta por una razon distinta:
 //
-//   UNIQUE(lote_id, caja) + reintento
+//   1. pg_advisory_xact_lock(clase, lote) -- serializa a los escritores DE ESE
+//      LOTE. Es el equivalente real del `BEGIN IMMEDIATE` de SQLite: el que
+//      llega segundo espera, en vez de leer el mismo MAX(caja) y chocar. Se
+//      libera solo al terminar la transaccion, asi que funciona con el pooler
+//      en modo transaccion.
 //
-// La restriccion garantiza que el duplicado sea IMPOSIBLE de guardar. El
-// reintento hace que, cuando la restriccion rechaza, el operario no vea un
-// error: se vuelve a intentar con el numero siguiente.
+//   2. UNIQUE(lote_id, caja) -- garantiza que el duplicado sea IMPOSIBLE de
+//      guardar, incluso si el lock fallara.
 //
-// Con un solo puesto etiquetando esto no se ejecuta nunca. Esta igual porque el
-// dia que agreguen un segundo puesto, nadie se va a acordar de este detalle.
+//   3. Reintento -- si la restriccion rechaza, se vuelve a intentar en vez de
+//      perder la etiqueta.
+//
+// Sin la capa 1, el test de concurrencia perdia 9 de 120 cajas: seis escritores
+// reintentando sobre el mismo numero se pisan entre si y agotan los intentos.
+// El reintento solo no alcanza cuando la contencion es alta.
+//
+// Con un solo puesto etiquetando, el lock nunca espera a nadie y no cuesta nada.
 // ---------------------------------------------------------------------------
 export async function crearEtiqueta(input: {
   maquinaId: number;
@@ -69,6 +83,12 @@ export async function crearEtiqueta(input: {
             `${maq.nombre} no tiene un lote abierto. Avisale al jefe de planta para que abra el siguiente.`
           );
         }
+
+        // Serializa a los escritores de este lote. Tiene que ir ANTES de leer
+        // MAX(caja): es lo que evita que dos transacciones lean el mismo valor.
+        await tx.execute(
+          sql`select pg_advisory_xact_lock(${CLASE_LOCK_LOTE}, ${maq.loteActualId})`
+        );
 
         const [lote] = await tx.select().from(lotes).where(eq(lotes.id, maq.loteActualId));
         if (!lote) throw new ErrorNegocio("El lote de la máquina no existe.", 404);

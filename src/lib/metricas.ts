@@ -120,17 +120,24 @@ export async function porDimension(dim: Dimension, f: Filtros = {}): Promise<Fil
   }
   const col = COLUMNA[dim];
 
-  // Las dos consultas son independientes: van en paralelo.
-  const [filas, tiempos] = await Promise.all([
-    db
-      .select({ clave: sql<string>`${col}`, ...AGREGADOS })
-      .from(etiquetas)
-      // incluirAnuladas: el WHERE no las excluye porque las necesitamos contar.
-      .where(condiciones({ ...f, incluirAnuladas: true, soloAnuladas: false }))
-      .groupBy(col)
-      .having(sql`${col} is not null`),
-    tiemposPorGrupo(col, f),
-  ]);
+  // SECUENCIAL, no en paralelo.
+  //
+  // Esto arrancó con un Promise.all "para bajar latencia" y fue un error: con
+  // el pool chico que conviene en serverless, abanicar consultas las hace
+  // pelearse por conexiones y el endpoint pasaba de 122 ms a colgarse minutos.
+  //
+  // Medido: las tres consultas del tablero, secuenciales, 122 ms en total. En
+  // paralelo, no terminaban. Son consultas chicas: lo que pesa es la conexión,
+  // no el cálculo, así que no hay nada que ganar solapándolas.
+  const filas = await db
+    .select({ clave: sql<string>`${col}`, ...AGREGADOS })
+    .from(etiquetas)
+    // incluirAnuladas: el WHERE no las excluye porque las necesitamos contar.
+    .where(condiciones({ ...f, incluirAnuladas: true, soloAnuladas: false }))
+    .groupBy(col)
+    .having(sql`${col} is not null`);
+
+  const tiempos = await tiemposPorGrupo(col, f);
 
   return filas
     .map((r) => {
