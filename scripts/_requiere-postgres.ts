@@ -79,3 +79,29 @@ ${nombre} escribe en la base, y DATABASE_URL apunta a una base remota:
   );
   process.exit(1);
 }
+
+/**
+ * Traba para los tests que prueban por HTTP.
+ *
+ * test:flujo y test:export no llaman a las funciones: le pegan a la API como lo
+ * haria el navegador, que es el unico modo de verificar que el CSV y la pantalla
+ * dicen lo mismo. Necesitan el server arriba.
+ *
+ * Sin esto el fallo es un `TypeError: fetch failed` con un ECONNREFUSED
+ * enterrado en `cause`, que no dice que hay que levantar nada.
+ */
+export async function requiereServidor(nombre: string, base: string) {
+  try {
+    const r = await fetch(`${base}/api/salud`, { signal: AbortSignal.timeout(5000) });
+    if (r.ok) return;
+    console.error(`\n${nombre}: ${base} responde ${r.status} en /api/salud.\n`);
+  } catch {
+    console.error(
+      `\n${nombre} prueba por HTTP y no hay nada escuchando en ${base}.\n\n` +
+        `  En otra terminal:\n\n` +
+        `    npm run build\n` +
+        `    npx next start -p ${new URL(base).port || "3100"}\n`
+    );
+  }
+  process.exit(1);
+}

@@ -2,7 +2,7 @@ import { and, asc, eq, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { etiquetas, frascos, lotes, maquinas, operarios, turnos } from "@/db/schema";
 import { handler, rolActual } from "@/lib/api";
-import { permisosDe, pinsConfigurados } from "@/lib/auth";
+import { permisosDe, pinsConfigurados, pinsPorDefecto } from "@/lib/auth";
 import { bandera } from "@/lib/entorno";
 import { colaPorMaquina } from "@/lib/lotes";
 
@@ -90,6 +90,10 @@ export async function GET() {
       .from(etiquetas)
       .where(and(eq(etiquetas.estadoCalidad, "pendiente"), eq(etiquetas.anulada, false)));
     const pins = await pinsConfigurados();
+    // Que roles siguen con el PIN de fabrica. Los defaults estan documentados en
+    // el repo, que es publico: el riesgo no es que se conozcan, es que nadie se
+    // acuerde de cambiarlos. La pantalla avisa mientras siga asi.
+    const porDefecto = await pinsPorDefecto();
 
     const conProgreso = maqs.map((m) => {
       if (!m.loteId) {
@@ -122,6 +126,7 @@ export async function GET() {
       modoDemo: bandera("MODO_DEMO"),
       permisos: permisosDe(rol),
       pins,
+      pinsPorDefecto: porDefecto,
       maquinas: conProgreso,
       operarios: listaOperarios,
       turnos: listaTurnos,

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Factory, Lock, Package, Plus, Trash2, Users, Clock, Check } from "lucide-react";
+import { AlertTriangle, Factory, Lock, Package, Plus, Trash2, Users, Clock, Check } from "lucide-react";
 import { api, fechaHora, type Catalogos } from "@/lib/cliente";
 import { Aviso } from "./ui";
 
@@ -25,12 +25,20 @@ export function ConfigView({ cat, recargar }: { cat: Catalogos; recargar: () => 
     }
   }
 
+  // Cuantos roles siguen con el PIN de fabrica. Se muestra en la pestana para
+  // que se vea sin tener que entrar a buscarlo.
+  const deFabrica = cat.pinsPorDefecto.length;
+
   const tabs: { id: Pestana; rotulo: string; icono: React.ReactNode }[] = [
     { id: "maquinas", rotulo: "Máquinas", icono: <Factory size={15} /> },
     { id: "frascos", rotulo: "Frascos", icono: <Package size={15} /> },
     { id: "operarios", rotulo: "Operarios", icono: <Users size={15} /> },
     { id: "turnos", rotulo: "Turnos", icono: <Clock size={15} /> },
-    { id: "pins", rotulo: "PINs", icono: <Lock size={15} /> },
+    {
+      id: "pins",
+      rotulo: deFabrica > 0 ? `PINs (${deFabrica} sin cambiar)` : "PINs",
+      icono: deFabrica > 0 ? <AlertTriangle size={15} /> : <Lock size={15} />,
+    },
   ];
 
   return (
@@ -62,7 +70,7 @@ export function ConfigView({ cat, recargar }: { cat: Catalogos; recargar: () => 
       {tab === "frascos" && <Frascos cat={cat} accion={accion} />}
       {tab === "operarios" && <Operarios cat={cat} accion={accion} />}
       {tab === "turnos" && <Turnos cat={cat} accion={accion} />}
-      {tab === "pins" && <Pins accion={accion} />}
+      {tab === "pins" && <Pins cat={cat} accion={accion} />}
     </div>
   );
 }
@@ -430,15 +438,32 @@ function Turnos({ cat, accion }: { cat: Catalogos; accion: Accion }) {
 }
 
 // ---------------------------------------------------------------------------
-function Pins({ accion }: { accion: Accion }) {
+function Pins({ cat, accion }: { cat: Catalogos; accion: Accion }) {
   const [cual, setCual] = useState<"jefe" | "calidad" | "admin">("jefe");
   const [pin, setPin] = useState("");
   const [pin2, setPin2] = useState("");
 
   const valido = /^\d{4,8}$/.test(pin) && pin === pin2;
 
+  const ROTULO = { jefe: "Jefe de planta", calidad: "Calidad", admin: "Administración" };
+  const deFabrica = cat.pinsPorDefecto;
+
   return (
     <div style={{ maxWidth: 460 }}>
+      {deFabrica.length > 0 && (
+        <Aviso tipo="error">
+          <strong>
+            {deFabrica.length === 1
+              ? "Un rol sigue con el PIN de fábrica"
+              : `${deFabrica.length} roles siguen con el PIN de fábrica`}
+            : {deFabrica.map((r) => ROTULO[r]).join(", ")}.
+          </strong>{" "}
+          Los PINs iniciales están escritos en la documentación del sistema, así que
+          cualquiera que la haya visto los conoce. Cambialos antes de usar esto en
+          producción. Conviene que sean de 6 dígitos: uno de 4 son 10.000
+          combinaciones y la app es alcanzable desde internet.
+        </Aviso>
+      )}
       <div className="card" style={{ padding: 20 }}>
         <div className="font-display" style={{ fontWeight: 700, fontSize: 17, marginBottom: 4 }}>
           Cambiar PIN

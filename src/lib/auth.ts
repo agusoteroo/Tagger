@@ -85,6 +85,40 @@ const CLAVE_PIN: Record<RolConPin, string> = {
 /** De más permisos a menos: si dos roles compartieran PIN, gana el mayor. */
 const PRIORIDAD: RolConPin[] = ["admin", "calidad", "jefe"];
 
+/**
+ * Los PINs de fábrica, para poder AVISAR que siguen puestos.
+ *
+ * Están documentados en el repo, que es público, así que no son secretos: son
+ * el valor inicial para que la app arranque usable. El riesgo real no es que se
+ * conozcan, es que nadie se acuerde de cambiarlos. Por eso existe
+ * `pinsPorDefecto()`: la pantalla de configuración avisa mientras alguno siga
+ * siendo el de fábrica.
+ *
+ * Tenerlos acá y no en arranque.ts es a propósito: quien los pone y quien
+ * detecta que siguen puestos tienen que leer la misma lista, o el aviso miente.
+ */
+export const PIN_POR_DEFECTO: Record<RolConPin, string> = {
+  jefe: "3690",
+  calidad: "2468",
+  admin: "1357",
+};
+
+/**
+ * Qué roles siguen con el PIN de fábrica.
+ *
+ * Se verifica contra el hash guardado, así que detecta el caso que importa:
+ * alguien "cambió" el PIN y volvió a poner el mismo de siempre.
+ */
+export async function pinsPorDefecto(): Promise<RolConPin[]> {
+  const mapa = await mapaConfig();
+  const iguales: RolConPin[] = [];
+  for (const rol of PRIORIDAD) {
+    const guardado = mapa.get(CLAVE_PIN[rol]);
+    if (guardado && verificarHash(PIN_POR_DEFECTO[rol], guardado)) iguales.push(rol);
+  }
+  return iguales;
+}
+
 async function mapaConfig() {
   const filas = await db.select().from(configuracion);
   return new Map(filas.map((f) => [f.clave, f.valor]));
@@ -161,32 +195,64 @@ export async function pinsConfigurados(): Promise<Record<RolConPin, boolean>> {
 const VENTANA_MIN = 15;
 const MAX_INTENTOS = 8;
 
-export async function estaBloqueado(origen: string): Promise<{
-  bloqueado: boolean;
-  esperaSeg: number;
-}> {
+/**
+ * Techo GLOBAL, sumando todas las IPs.
+ *
+ * El límite por IP solo no alcanza desde que esto está en internet: un PIN de 4
+ * dígitos son 10.000 combinaciones, y quien rote direcciones se lleva
+ * MAX_INTENTOS gratis por cada una. Con suficientes IPs el PIN cae.
+ *
+ * Que esto sea seguro depende de una decisión de diseño que ya estaba tomada:
+ * **el operario etiqueta sin PIN**. Así que frenar los intentos de PIN no para
+ * la línea — el atacante no puede dejar la planta sin producir. Si etiquetar
+ * necesitara PIN, este freno global sería un botón de apagado.
+ *
+ * Lo que sí puede hacer es dejar al jefe esperando un rato para abrir un lote.
+ * Por eso el techo es holgado: 40 fallos en 15 minutos no los produce nadie
+ * tipeando mal, y la espera no pasa de dos minutos.
+ */
+const MAX_GLOBAL = 40;
+const ESPERA_GLOBAL_SEG = 120;
+
+async function fallosEnVentana(origen?: string) {
+  const dentroDeVentana = sql`${intentosPin.creadoEn} > now() - (${VENTANA_MIN} || ' minutes')::interval`;
   const [r] = await db
     .select({
       n: sql<number>`count(*)::int`,
       ultimo: sql<string | null>`max(${intentosPin.creadoEn})`,
     })
     .from(intentosPin)
-    .where(
-      and(
-        eq(intentosPin.origen, origen),
-        sql`${intentosPin.creadoEn} > now() - (${VENTANA_MIN} || ' minutes')::interval`
-      )
-    );
+    .where(origen ? and(eq(intentosPin.origen, origen), dentroDeVentana) : dentroDeVentana);
+  return { n: r?.n ?? 0, ultimo: r?.ultimo ?? null };
+}
 
-  const n = r?.n ?? 0;
-  if (n < MAX_INTENTOS || !r?.ultimo) return { bloqueado: false, esperaSeg: 0 };
+function restanteDe(ultimo: string | null, esperaSeg: number) {
+  if (!ultimo) return 0;
+  return Math.ceil((Date.parse(ultimo) + esperaSeg * 1000 - Date.now()) / 1000);
+}
 
-  // Espera creciente: 30s, 60s, 120s... con techo en la ventana completa.
-  const espera = Math.min(30 * 2 ** (n - MAX_INTENTOS), VENTANA_MIN * 60);
-  const restante = Math.ceil((Date.parse(r.ultimo) + espera * 1000 - Date.now()) / 1000);
-  return restante > 0
-    ? { bloqueado: true, esperaSeg: restante }
-    : { bloqueado: false, esperaSeg: 0 };
+export async function estaBloqueado(origen: string): Promise<{
+  bloqueado: boolean;
+  esperaSeg: number;
+}> {
+  const propio = await fallosEnVentana(origen);
+
+  if (propio.n >= MAX_INTENTOS) {
+    // Espera creciente: 30s, 60s, 120s... con techo en la ventana completa.
+    const espera = Math.min(30 * 2 ** (propio.n - MAX_INTENTOS), VENTANA_MIN * 60);
+    const restante = restanteDe(propio.ultimo, espera);
+    if (restante > 0) return { bloqueado: true, esperaSeg: restante };
+  }
+
+  // Recién acá se mira el total. Es una consulta más, y solo hace falta cuando
+  // la IP que pregunta todavía tiene crédito propio.
+  const global = await fallosEnVentana();
+  if (global.n >= MAX_GLOBAL) {
+    const restante = restanteDe(global.ultimo, ESPERA_GLOBAL_SEG);
+    if (restante > 0) return { bloqueado: true, esperaSeg: restante };
+  }
+
+  return { bloqueado: false, esperaSeg: 0 };
 }
 
 export async function registrarFallo(origen: string) {

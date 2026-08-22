@@ -2,7 +2,7 @@ import { sql } from "drizzle-orm";
 import { db } from "./index";
 import { migrar } from "./migrar";
 import { frascos, maquinas, operarios, turnos } from "./schema";
-import { setPin } from "@/lib/auth";
+import { PIN_POR_DEFECTO, setPin } from "@/lib/auth";
 import { bandera, texto, textoOpcional } from "@/lib/entorno";
 import { prepararLote } from "@/lib/lotes";
 
@@ -76,9 +76,9 @@ export async function sembrarSiVacio() {
   // variable existe pero sin valor es un caso comun en Vercel, y un PIN vacio
   // es una puerta abierta.
   const pins = {
-    jefe: texto("PIN_JEFE_INICIAL", "3690"),
-    calidad: texto("PIN_CALIDAD_INICIAL", "2468"),
-    admin: texto("PIN_ADMIN_INICIAL", "1357"),
+    jefe: texto("PIN_JEFE_INICIAL", PIN_POR_DEFECTO.jefe),
+    calidad: texto("PIN_CALIDAD_INICIAL", PIN_POR_DEFECTO.calidad),
+    admin: texto("PIN_ADMIN_INICIAL", PIN_POR_DEFECTO.admin),
   };
   for (const [rol, pin] of Object.entries(pins) as ["jefe" | "calidad" | "admin", string][]) {
     try {

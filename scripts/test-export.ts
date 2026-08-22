@@ -7,6 +7,8 @@
  * Es el invariante que más importa de un export: si el Excel dice otra cosa que
  * la pantalla, el cliente pierde la confianza en todo el sistema.
  */
+import { requiereBaseDePrueba, requiereServidor } from "./_requiere-postgres";
+
 export {}; // marca el archivo como modulo: si no, TS lo mezcla con los otros scripts
 
 const B = "http://127.0.0.1:3100";
@@ -56,6 +58,7 @@ const CASOS: { nombre: string; filtro: string }[] = [
 ];
 
 async function main() {
+  await requiereServidor("test:export", B);
   console.log("\n--- Cabeceras del CSV ---");
   const c0 = await csv("/api/export");
   ok("content-type es CSV", c0.tipo.includes("text/csv"), c0.tipo);

@@ -172,6 +172,12 @@ export type Catalogos = {
   modoDemo: boolean;
   permisos: Permiso[];
   pins: { jefe: boolean; calidad: boolean; admin: boolean };
+  /**
+   * Roles que TODAVIA tienen el PIN de fabrica. Los defaults estan documentados
+   * en el repo, que es publico: el riesgo no es que se conozcan, es que nadie se
+   * acuerde de cambiarlos, asi que la pantalla avisa mientras siga asi.
+   */
+  pinsPorDefecto: ("jefe" | "calidad" | "admin")[];
   maquinas: MaquinaCat[];
   operarios: { id: number; nombre: string }[];
   turnos: { id: number; nombre: string }[];

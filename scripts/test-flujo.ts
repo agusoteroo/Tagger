@@ -6,7 +6,7 @@
  */
 import { cerrarConexion } from "../src/db";
 import { setPin } from "../src/lib/auth";
-import { requiereBaseDePrueba, requierePostgres } from "./_requiere-postgres";
+import { requiereBaseDePrueba, requierePostgres, requiereServidor } from "./_requiere-postgres";
 
 const B = "http://127.0.0.1:3100";
 let cookie = "";
@@ -59,6 +59,7 @@ async function loteAbiertoEn(maquinaId: number) {
 }
 
 async function main() {
+  await requiereServidor("test:flujo", B);
   requiereBaseDePrueba("test:flujo");
   requierePostgres("test:flujo");
 
