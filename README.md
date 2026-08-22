@@ -41,7 +41,7 @@ Cambialos antes de planta (Configuración → PINs).
 | `npm run demo:preparar` | Rota los PINs, carga datos de ejemplo y prende el banner de prueba |
 | `npm run db:demo` | Genera 12 días de producción de ejemplo, para ver las métricas |
 | `npm test` | Corre las cinco suites (independientes del orden) |
-| `npm run test:lotes` | Límite, cierre automático y cola de lotes |
+| `npm run test:lotes` | Objetivo, cierre por cambio de producción, numeración |
 | `npm run test:flujo` | Flujo completo y permisos — **necesita el server en :3100** |
 | `npm run test:export` | Que el CSV coincida con la pantalla — **necesita el server** |
 | `npm run test:metricas` | Agregaciones cruzadas contra SQL escrito a mano |
@@ -168,10 +168,9 @@ normal); las reimpresiones sí.
 | `POST` | `/api/etiquetas/calidad` | calidad | Liberar o rechazar en lote |
 | `POST` | `/api/etiquetas/:id/imprimir` | — | Cuenta la impresión, audita reimpresiones |
 | `POST` | `/api/etiquetas/:id/anular` | admin | Anula (no borra) |
-| `GET` | `/api/lotes` | — | Lotes con su progreso (`?estado=abierto\|preparado\|cerrado`) |
-| `POST` | `/api/lotes` | lotes | Abrir o poner en cola un lote con su límite |
-| `PATCH` | `/api/lotes/:id` | lotes | Cerrar a mano, o corregir el límite |
-| `DELETE` | `/api/lotes/:id` | lotes | Cancelar un lote que todavía no arrancó |
+| `GET` | `/api/lotes` | — | Lotes con su progreso (`?estado=abierto\|cerrado`) |
+| `POST` | `/api/lotes` | lotes | Abrir un lote con su objetivo. **Cierra el que estuviera abierto** |
+| `PATCH` | `/api/lotes/:id` | lotes | Cerrar a mano (la máquina queda parada), o corregir el objetivo |
 | `POST` | `/api/auth/pin` | — | Login por PIN |
 | `POST` | `/api/auth/salir` | — | Bloquear pantalla |
 | `POST` `PATCH` `DELETE` | `/api/catalogos/{maquinas,operarios,frascos,turnos}` | admin | Altas, bajas y ediciones |
@@ -199,41 +198,52 @@ TZ_OFFSET_HORAS=-3       # zona horaria de la planta, para agrupar por día
 
 Así trabaja la planta, y así lo modela el sistema:
 
-1. El **jefe de planta** abre un lote desde un formulario, con un **límite** en
+1. El **jefe de planta** abre un lote desde un formulario, con un **objetivo** en
    unidades o en cajas (lo elige en cada lote).
 2. El **número de lote lo asigna el sistema**, siguiendo una secuencia **por
    producto**: el lote 100 del frasco 250ml y el 100 del 1L son dos lotes
    distintos. En la etiqueta se imprime con el prefijo del producto (`F250-100`)
    para que no haya ambigüedad.
-3. Cuando se alcanza el límite, el lote **se cierra solo**.
-4. El lote siguiente **arranca automáticamente** si el jefe lo dejó preparado.
-   Sus cajas vuelven a numerarse desde **#1**.
+3. La máquina etiqueta **hasta que se cambie la producción**. El objetivo no
+   cierra nada: pasarse es normal y queda medido.
+4. Cuando el jefe **carga otro lote en esa máquina**, el anterior se cierra en
+   ese momento y las cajas del nuevo vuelven a numerarse desde **#1**.
 
-### La cola
+### El objetivo NO cierra el lote
 
-El jefe puede dejar el lote siguiente **preparado** antes de que se termine el
-actual. Al cerrarse uno, el más viejo de la cola arranca solo.
+Esta fue una corrección del cliente, y es la regla central del sistema.
 
-Sin eso, la línea se detendría cada vez que un lote se completa hasta que
-alguien vaya a abrir el próximo. Con la cola, cada lote sigue estando autorizado
-por una persona, pero la producción no para. Si la cola está vacía y el lote se
-completa, la máquina queda parada y la pantalla lo dice con claridad — y el badge
-rojo en la pestaña **Lotes** avisa cuántas máquinas están frenadas.
+La primera versión cerraba el lote al alcanzar la cantidad planificada, y tenía
+una cola de lotes "preparados" que arrancaban solos para que la línea no se
+detuviera. No es así como trabaja la planta: **lo que termina un lote es que la
+máquina se ponga a hacer otra cosa.** En palabras del cliente: "estoy haciendo
+medias en una máquina y cargo un lote de mandarinas a hacerse en esa máquina".
 
-### La caja que cruza el límite
+Consecuencias, todas deliberadas:
 
-Se etiqueta igual, y ahí se cierra el lote.
+- El `limite` es un **objetivo de producción**, no un tope. El porcentaje pasa de
+  100 y eso es un dato de sobreproducción, no un error.
+- **Cargar un lote cierra el que estaba**, aunque sea del mismo producto. Una
+  máquina tiene un lote a la vez, sin excepciones: es la regla más simple de
+  explicar en planta y no deja casos raros. El precio es que un clic de más
+  cierra un lote recién arrancado, así que la API devuelve cuál cerró y con
+  cuánto, y la pantalla lo muestra antes de confirmar.
+- **La cola desapareció.** Existía para que la línea no se detuviera sola. Sola
+  ya no se detiene.
+- El cierre manual sigue existiendo, y ahí sí **la máquina queda parada**: sirve
+  para cortar turno o parar por mantenimiento.
 
-Rechazarla dejaría al operario con una caja física real sin registrar, que es
-peor que pasarse del límite por una. El excedente queda guardado y visible
-(`+N de excedente` en la lista de lotes cerrados).
+El invariante está garantizado por la base, no por el código: un índice único
+parcial permite **un solo lote abierto por máquina**. Misma idea que
+`UNIQUE(lote_id, caja)` — la regla que el sistema no puede permitirse violar vive
+en el esquema.
 
 ### Detalles que importan
 
-- **Las anuladas no cuentan para el límite** (la caja no sirve), pero **sí
+- **Las anuladas no cuentan para el objetivo** (la caja no sirve), pero **sí
   consumen número de caja**: el hueco en la secuencia es la evidencia.
-- **Un lote cancelado no libera su número.** El salto en la numeración queda
-  explicado en el historial, con motivo `cancelado`.
+- **Corregir el objetivo de un lote abierto no lo cierra**, ni dejándolo por
+  debajo de lo ya producido: el jefe se dio cuenta de que planificó de más.
 - **Cambiar de producto** se hace al abrir un lote, no en Configuración: es el
   único momento en que no se mezcla producto dentro de un mismo lote.
 

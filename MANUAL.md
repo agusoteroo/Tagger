@@ -29,20 +29,26 @@ No lo elegís vos y no se puede repetir. Cada lote empieza en **#1**.
 
 ### Lo que vas a ver abajo del botón
 
-Una barra que muestra cuánto falta para que se llene el lote:
+Una barra con cuánto lleva el lote contra lo planificado:
 
 ```
 Lote F250-17 · próxima caja #5
-4 / 5 cajas — Falta 1 caja para cerrar el lote · 1 lote en cola
+4 / 5 cajas — Falta 1 caja para el objetivo
 ```
 
-Cuando el lote se llena, **se cierra solo** y arranca el siguiente. La pantalla te
-avisa y la numeración vuelve a #1. No tenés que hacer nada.
+Cuando llega al objetivo, dice **"Objetivo cumplido"** y **seguís etiquetando
+igual**. El lote no se cierra por cantidad: si la planta hizo más de lo
+planificado, se registra y listo. Vas a ver el porcentaje pasar de 100%, y eso
+está bien.
+
+El lote se cierra cuando **el jefe carga otro lote en esa máquina** — o sea
+cuando la máquina se pone a hacer otra cosa. Ahí la numeración vuelve a #1 y la
+pantalla te lo avisa.
 
 ### Si dice "sin lote abierto"
 
-La máquina no puede etiquetar. **Avisale al jefe de planta** para que abra el
-lote siguiente. No es algo que puedas resolver desde la pantalla.
+La máquina no puede etiquetar. **Avisale al jefe de planta** para que abra un
+lote. No es algo que puedas resolver desde la pantalla.
 
 ### Si te equivocaste en una caja
 
@@ -62,36 +68,49 @@ En **Lotes**, botón *"Lote en [máquina]"*. Cargá:
 
 - **Producto** — el frasco que va a hacer. Si es distinto al que venía haciendo,
   la máquina pasa a producir ese
-- **Límite** — en unidades o en cajas, lo que te convenga. El formulario te
+- **Objetivo** — cuánto pensás producir, en unidades o en cajas. El formulario te
   muestra la equivalencia: si ponés 2400 unidades te dice "≈ 10 cajas de 240 u."
+  Es una referencia para medir, **no un tope**: si se pasa, se sigue etiquetando
 - **Nota** (opcional) — sirve para anotar la partida de materia prima
 
 **El número de lote lo pone el sistema.** No lo escribís. Cada producto lleva su
 propia numeración: el lote 100 del 250ml y el 100 del 1L son dos lotes distintos.
 
-### La cola: lo más importante de tu pantalla
+### Lo más importante de tu pantalla: cargar un lote CIERRA el anterior
 
-Si la máquina ya está produciendo, el lote nuevo **queda en cola**. Cuando el
-actual llega a su límite, se cierra solo y el de la cola arranca automáticamente.
+Si la máquina venía produciendo, el lote nuevo arranca **en el acto** y el que
+estaba **se cierra en ese momento**.
 
-**Dejá siempre el siguiente preparado.** Si un lote se llena y no hay otro en
-cola, **la máquina queda parada** hasta que vayas a abrir uno. La pantalla te
-avisa con un cartel rojo y el número aparece en la pestaña Lotes.
+Es la lógica de la planta: si estás haciendo frascos de 250 y cargás un lote de
+potes de 100 en esa máquina, el lote de 250 terminó ahí — haya hecho el 40% o el
+180% de lo planificado. Antes de confirmar, la pantalla te dice cuál vas a cerrar
+y con cuánto va, así no te llevás una sorpresa.
 
-### Cerrar un lote antes del límite
+**Pasa también si es el mismo producto.** Una máquina tiene un lote a la vez, sin
+excepciones. Si cargaste uno por error, cerralo y abrí el correcto: no hay forma
+de "deshacerlo", pero queda todo registrado.
 
-Botón **Cerrar** en la tarjeta del lote. Arranca el de la cola, si hay.
+**El lote NO se cierra por llegar al objetivo.** La máquina sigue produciendo
+hasta que vos decidas cambiar. No hace falta dejar nada preparado y la línea no
+se detiene sola.
 
-### Cancelar un lote de la cola
+### Cerrar un lote sin abrir otro
 
-El tacho de basura en la fila. No se borra: queda registrado como cancelado, y
-**su número no se reutiliza**.
+Botón **Cerrar** en la tarjeta del lote. Ojo: la máquina **queda parada** y no se
+puede etiquetar hasta que abras uno nuevo. Usalo para cortar turno o parar por
+mantenimiento; si lo que querés es cambiar de producto, cargá directamente el
+lote nuevo y este se cierra solo.
 
-### Si una caja se pasa del límite
+### Si se pasa del objetivo
 
-Se etiqueta igual y ahí se cierra el lote. Es a propósito: esa caja existe de
-verdad, y dejarla sin registrar sería peor que pasarse por una. El excedente
-queda visible en la lista de lotes cerrados.
+No pasa nada malo: se sigue etiquetando y el excedente queda medido. Lo vas a ver
+como un porcentaje arriba de 100 y en la lista de lotes cerrados. Es información
+útil — te dice dónde se produjo de más.
+
+### Si te equivocaste con el objetivo
+
+Se puede corregir con el lote abierto, incluso dejándolo por debajo de lo que ya
+se produjo. No cierra nada: solo cambia el número contra el que se compara.
 
 ---
 
