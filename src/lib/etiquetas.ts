@@ -3,7 +3,7 @@ import { db } from "@/db";
 import { auditoria, etiquetas, lotes, maquinas, operarios, turnos } from "@/db/schema";
 import { ErrorNegocio } from "./errores";
 import { condiciones, type Filtros } from "./filtros";
-import { cerrarYAvanzarEnTx, limiteAlcanzado, progreso, type Tx } from "./lotes";
+import { objetivoCumplido, porcentajeObjetivo, progreso } from "./lotes";
 import { conReintentoUnico } from "./reintento";
 import { diaLocal, hoyLocal } from "./tiempo";
 
@@ -164,33 +164,29 @@ export async function crearEtiqueta(input: {
         });
 
         // -------------------------------------------------------------------
-        // Limite del lote.
+        // Objetivo del lote.
         //
-        // El chequeo va DESPUES de insertar, a proposito: la caja que cruza el
-        // limite ya existe fisicamente en la planta, asi que se etiqueta igual.
-        // Rechazarla dejaria producto real sin registrar, que es peor que
-        // pasarse del limite por una caja. El excedente queda visible.
+        // Etiquetar NO cierra el lote, ni cuando pasa la cantidad planificada.
+        // Antes si: al alcanzar el limite el lote se cerraba y arrancaba el
+        // siguiente de una cola. El cliente corrigio la regla -- el lote termina
+        // cuando esa maquina se pone a hacer otro producto, no cuando un
+        // contador llega a un numero.
+        //
+        // Asi que aca solo se informa como viene la mano. La pantalla avisa
+        // "objetivo cumplido, 112%" y el operario sigue etiquetando: si la
+        // planta hizo mas de lo planificado, eso es un dato, no un error.
         // -------------------------------------------------------------------
         const p = await progreso(lote.id, tx);
-        let loteCerrado: string | null = null;
-        let loteSiguiente: string | null = null;
-
-        if (limiteAlcanzado(lote, p)) {
-          const sig = await cerrarYAvanzarEnTx(tx as Tx, lote, "limite", "sistema");
-          loteCerrado = lote.codigo;
-          loteSiguiente = sig?.codigo ?? null;
-        }
 
         return {
           ...et,
-          // Con esto la pantalla puede avisarle al operario que cambio el lote.
           lote: {
             codigo: lote.codigo,
             limite: lote.limite,
             limiteUnidad: lote.limiteUnidad,
             hecho: lote.limiteUnidad === "cajas" ? p.cajas : p.unidades,
-            cerrado: loteCerrado,
-            siguiente: loteSiguiente,
+            objetivoCumplido: objetivoCumplido(lote, p),
+            porcentaje: porcentajeObjetivo(lote, p),
           },
         };
       }),

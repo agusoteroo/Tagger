@@ -1,5 +1,5 @@
 import { body, entero, exigir, handler } from "@/lib/api";
-import { listarLotes, prepararLote, type EstadoLote, type Unidad } from "@/lib/lotes";
+import { listarLotes, abrirLote, type EstadoLote, type Unidad } from "@/lib/lotes";
 
 // GET /api/lotes?estado=abierto — lista con progreso de cada lote.
 export async function GET(req: Request) {
@@ -33,7 +33,7 @@ export async function POST(req: Request) {
       limiteUnidad: Unidad;
       nota?: string;
     }>(req);
-    return prepararLote({
+    return abrirLote({
       maquinaId: entero(b.maquinaId, "maquinaId"),
       frascoId: b.frascoId ? entero(b.frascoId, "frascoId") : undefined,
       limite: entero(b.limite, "limite"),

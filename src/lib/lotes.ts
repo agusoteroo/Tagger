@@ -5,7 +5,16 @@ import { ErrorNegocio } from "./errores";
 import { conReintentoUnico } from "./reintento";
 
 export type Unidad = "cajas" | "unidades";
-export type EstadoLote = "preparado" | "abierto" | "cerrado";
+/**
+ * Ya no hay estado "preparado".
+ *
+ * Existia cuando el lote se cerraba solo al llegar al limite y el siguiente
+ * esperaba en una cola para arrancar sin que el jefe intervenga. El cliente
+ * corrigio la regla: el lote NO se cierra por cantidad, se cierra cuando en esa
+ * maquina arranca otro lote. Con eso, cargar un lote ES el cambio de
+ * produccion, y no hay nada que esperar en una cola.
+ */
+export type EstadoLote = "abierto" | "cerrado";
 
 /** El `tx` que pasa drizzle dentro de una transaccion. */
 export type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
@@ -40,8 +49,17 @@ export async function progreso(loteId: number, tx: Ejecutor = db) {
   return { cajas: r?.cajas ?? 0, unidades: r?.unidades ?? 0 };
 }
 
-/** Si ya alcanzo o paso el limite. */
-export function limiteAlcanzado(
+/**
+ * Si el lote ya llego a la cantidad planificada.
+ *
+ * OJO con el nombre: antes esto se llamaba `limiteAlcanzado` y disparaba el
+ * cierre. Ya no cierra nada. El limite es un OBJETIVO: se avisa que se cumplio
+ * y la maquina sigue etiquetando todo lo que haga falta, porque quien decide
+ * cortar es el jefe cambiando la produccion, no un contador.
+ *
+ * Se renombro justamente para que nadie lo vuelva a usar como disparador.
+ */
+export function objetivoCumplido(
   lote: { limite: number; limiteUnidad: string },
   p: { cajas: number; unidades: number }
 ) {
@@ -49,22 +67,43 @@ export function limiteAlcanzado(
   return hecho >= lote.limite;
 }
 
+/** Cuanto del objetivo lleva, en porcentaje. Puede pasar de 100. */
+export function porcentajeObjetivo(
+  lote: { limite: number; limiteUnidad: string },
+  p: { cajas: number; unidades: number }
+) {
+  if (!lote.limite || lote.limite <= 0) return 0;
+  const hecho = lote.limiteUnidad === "cajas" ? p.cajas : p.unidades;
+  return Math.round((hecho / lote.limite) * 100);
+}
+
 function codigoDe(prefijo: string | null, numero: number) {
   return prefijo?.trim() ? `${prefijo.trim()}-${numero}` : String(numero);
 }
 
 // ---------------------------------------------------------------------------
-// Preparar un lote (el formulario del jefe de planta)
+// Abrir un lote (el formulario del jefe de planta)
 // ---------------------------------------------------------------------------
 
 /**
- * Crea un lote y le reserva el numero. El numero es secuencial POR FRASCO y se
- * reserva ahora, no al activarlo: si dos maquinas hacen el mismo producto, la
- * segunda toma el numero siguiente y nunca colisionan.
+ * Abre un lote en una maquina. Si habia otro abierto, LO CIERRA.
  *
- * Si la maquina no tiene lote abierto, este arranca ya. Si tiene, queda en cola.
+ * Esta es la regla del negocio, y es la que corrigio el cliente: el lote no
+ * termina por llegar a una cantidad, termina cuando esa maquina se pone a hacer
+ * otra cosa. Si estoy haciendo frascos de 250 y cargo un lote de potes de 100,
+ * el lote de 250 se cerro en ese momento -- haya hecho el 60% o el 130% de lo
+ * planificado.
+ *
+ * Cierra tambien si el producto es el MISMO: una maquina tiene un solo lote a la
+ * vez, sin excepciones. Es la regla mas simple de explicar en planta y no deja
+ * casos raros. El precio es que un clic de mas cierra un lote que recien
+ * arranco, asi que se devuelve que se cerro y con cuanto, para que la pantalla
+ * lo muestre antes de confirmar.
+ *
+ * El numero es secuencial POR FRASCO: si dos maquinas hacen el mismo producto,
+ * la segunda toma el siguiente y nunca colisionan.
  */
-export async function prepararLote(input: {
+export async function abrirLote(input: {
   maquinaId: number;
   frascoId?: number;
   limite: number;
@@ -94,12 +133,30 @@ export async function prepararLote(input: {
         const [frasco] = await tx.select().from(frascos).where(eq(frascos.id, frascoId));
         if (!frasco) throw new ErrorNegocio("El producto elegido no existe.", 404);
 
-        // ¿Hay un lote abierto en esta maquina? Si no, este arranca ya.
-        const [abierto] = await tx
-          .select({ id: lotes.id })
+        /**
+         * Cerrar el que estaba abierto, ANTES de insertar el nuevo.
+         *
+         * El orden importa: hay un indice unico parcial que permite un solo lote
+         * abierto por maquina, asi que insertar el nuevo con el viejo todavia
+         * abierto lo viola.
+         *
+         * (Primero lo habia hecho al revés, con el argumento de que si crear el
+         * nuevo fallaba la maquina no quedara sin lote. Era un razonamiento
+         * vacio: las dos operaciones estan en la MISMA transaccion, asi que un
+         * fallo revierte todo igual. El orden no protegia de nada y rompia el
+         * indice.)
+         */
+        const [anterior] = await tx
+          .select()
           .from(lotes)
           .where(and(eq(lotes.maquinaId, maq.id), eq(lotes.estado, "abierto")));
-        const arrancaYa = !abierto;
+
+        let cerrado: { codigo: string; cajas: number; unidades: number; porcentaje: number } | null =
+          null;
+        if (anterior) {
+          const p = await cerrarEnTx(tx, anterior, "cambio", input.actor);
+          cerrado = { codigo: anterior.codigo, ...p, porcentaje: porcentajeObjetivo(anterior, p) };
+        }
 
         // Numero siguiente de la secuencia de ESTE producto.
         const [fila] = await tx
@@ -119,52 +176,65 @@ export async function prepararLote(input: {
             frascoNombre: frasco.nombre,
             limite: input.limite,
             limiteUnidad: input.limiteUnidad,
-            estado: arrancaYa ? "abierto" : "preparado",
+            // Siempre abierto: no hay cola, cargar un lote ES arrancarlo.
+            estado: "abierto",
             preparadoPor: input.actor,
-            abiertoEn: arrancaYa ? sql`now()` : null,
+            abiertoEn: sql`now()`,
             nota: input.nota?.trim() || null,
           })
           .returning();
 
-        if (arrancaYa) {
-          // Abrir un lote de otro producto es tambien el momento natural para
-          // cambiar lo que produce la maquina.
-          await tx
-            .update(maquinas)
-            .set({ loteActualId: lote.id, frascoId: frasco.id })
-            .where(eq(maquinas.id, maq.id));
-        }
+        // Abrir un lote es tambien el momento en que cambia lo que produce la
+        // maquina: es la misma accion vista desde el catalogo.
+        await tx
+          .update(maquinas)
+          .set({ loteActualId: lote.id, frascoId: frasco.id })
+          .where(eq(maquinas.id, maq.id));
 
-        await auditar(tx, arrancaYa ? "lote.abrir" : "lote.preparar", lote.id, input.actor, {
+        await auditar(tx, "lote.abrir", lote.id, input.actor, {
           numero,
           codigo: lote.codigo,
           maquina: maq.nombre,
           frasco: frasco.nombre,
           limite: input.limite,
           unidad: input.limiteUnidad,
+          // Queda asentado que este lote desplazo a otro, y con cuanto lo dejo.
+          cerroA: cerrado,
         });
 
-        return { lote, arrancoYa: arrancaYa };
+        return { lote, cerrado };
       }),
-    { que: "el lote" }
+    // Solo se reintenta la colision de numero. Si lo que falla es
+    // "un solo lote abierto por maquina", eso es un error de logica y tiene que
+    // salir a la luz, no esconderse detras de ocho reintentos.
+    { que: "el lote", soloRestriccion: "uq_lote_frasco_numero" }
   );
 }
 
 // ---------------------------------------------------------------------------
-// Cierre y activacion del siguiente
+// Cierre
 // ---------------------------------------------------------------------------
 
 /**
- * Cierra el lote abierto de una maquina y activa el siguiente de la cola.
- * Se usa desde crearEtiqueta (cierre por limite) y desde el cierre manual.
+ * Cierra un lote y deja la maquina sin lote.
  *
- * Devuelve el lote que quedo abierto, o null si la cola estaba vacia (ahi la
- * maquina queda sin lote y no puede etiquetar hasta que el jefe cargue otro).
+ * Antes esto se llamaba `cerrarYAvanzarEnTx` y ademas activaba el siguiente de
+ * una cola de lotes "preparados". Eso existia porque el lote se cerraba solo al
+ * llegar al limite, y la cola evitaba que la linea se detuviera esperando al
+ * jefe. Ya no aplica: el lote se cierra cuando arranca otro, asi que la
+ * apertura del siguiente es una decision explicita de una persona, no algo que
+ * el sistema tenga que adivinar.
+ *
+ * Si quien cierra es `abrirLote`, va a poner el lote nuevo en la maquina
+ * inmediatamente despues. Si es un cierre manual, la maquina queda parada, y eso
+ * es correcto: el jefe decidio que no se produce mas hasta nuevo aviso.
+ *
+ * Devuelve el progreso con el que quedo, para poder informarlo.
  */
-export async function cerrarYAvanzarEnTx(
+export async function cerrarEnTx(
   tx: Tx,
   lote: { id: number; maquinaId: number; codigo: string },
-  motivo: "limite" | "manual",
+  motivo: "cambio" | "manual",
   actor: string | null
 ) {
   await tx
@@ -172,84 +242,39 @@ export async function cerrarYAvanzarEnTx(
     .set({ estado: "cerrado", cerradoEn: sql`now()`, cerradoMotivo: motivo, cerradoPor: actor })
     .where(eq(lotes.id, lote.id));
 
+  await tx.update(maquinas).set({ loteActualId: null }).where(eq(maquinas.id, lote.maquinaId));
+
   const p = await progreso(lote.id, tx);
   await auditar(tx, "lote.cerrar", lote.id, actor, { motivo, codigo: lote.codigo, ...p });
-
-  // El siguiente de la cola: el preparado mas viejo de esta maquina.
-  const [siguiente] = await tx
-    .select()
-    .from(lotes)
-    .where(and(eq(lotes.maquinaId, lote.maquinaId), eq(lotes.estado, "preparado")))
-    .orderBy(asc(lotes.preparadoEn), asc(lotes.id))
-    .limit(1);
-
-  if (!siguiente) {
-    await tx.update(maquinas).set({ loteActualId: null }).where(eq(maquinas.id, lote.maquinaId));
-    return null;
-  }
-
-  await tx
-    .update(lotes)
-    .set({ estado: "abierto", abiertoEn: sql`now()` })
-    .where(eq(lotes.id, siguiente.id));
-  await tx
-    .update(maquinas)
-    .set({ loteActualId: siguiente.id, frascoId: siguiente.frascoId })
-    .where(eq(maquinas.id, lote.maquinaId));
-
-  await auditar(tx, "lote.abrir", siguiente.id, "sistema", {
-    codigo: siguiente.codigo,
-    motivo: "arrancó automáticamente al cerrarse el anterior",
-    anterior: lote.codigo,
-  });
-
-  return siguiente;
+  return p;
 }
 
-/** Cierre manual: el jefe corta el lote antes de llegar al limite. */
+/**
+ * Cierre manual: el jefe corta el lote y la maquina queda parada.
+ *
+ * Es distinto de cambiar de produccion. Aca no arranca nada: sirve para cortar
+ * turno, parar por mantenimiento, o cerrar un lote que se dio por terminado sin
+ * tener el siguiente definido.
+ */
 export async function cerrarLoteManual(input: { loteId: number; actor: string }) {
   return db.transaction(async (tx) => {
     const [lote] = await tx.select().from(lotes).where(eq(lotes.id, input.loteId));
     if (!lote) throw new ErrorNegocio("El lote no existe.", 404);
     if (lote.estado === "cerrado") throw new ErrorNegocio("El lote ya está cerrado.");
-    if (lote.estado === "preparado") {
-      throw new ErrorNegocio(
-        "Ese lote todavía no arrancó. Si no lo vas a usar, cancelalo en vez de cerrarlo."
-      );
-    }
-    const siguiente = await cerrarYAvanzarEnTx(tx, lote, "manual", input.actor);
-    return { cerrado: lote.codigo, siguiente: siguiente?.codigo ?? null };
+
+    const p = await cerrarEnTx(tx, lote, "manual", input.actor);
+    return {
+      cerrado: lote.codigo,
+      ...p,
+      porcentaje: porcentajeObjetivo(lote, p),
+      // La maquina queda sin lote: quien la use tiene que saber que para
+      // producir de nuevo hace falta abrir uno.
+      maquinaParada: true,
+    };
   });
 }
 
-/**
- * Cancelar un lote preparado que todavia no arranco.
- * No se borra: queda cerrado con motivo 'cancelado', asi el hueco en la
- * numeracion queda explicado.
- */
-export async function cancelarLotePreparado(input: { loteId: number; actor: string }) {
-  return db.transaction(async (tx) => {
-    const [lote] = await tx.select().from(lotes).where(eq(lotes.id, input.loteId));
-    if (!lote) throw new ErrorNegocio("El lote no existe.", 404);
-    if (lote.estado !== "preparado") {
-      throw new ErrorNegocio("Solo se pueden cancelar lotes que todavía no arrancaron.");
-    }
-    await tx
-      .update(lotes)
-      .set({
-        estado: "cerrado",
-        cerradoEn: sql`now()`,
-        cerradoMotivo: "cancelado",
-        cerradoPor: input.actor,
-      })
-      .where(eq(lotes.id, lote.id));
-    await auditar(tx, "lote.cancelar", lote.id, input.actor, { codigo: lote.codigo });
-    // El numero NO se reusa: el hueco es la evidencia de que existio.
-    return { cancelado: lote.codigo };
-  });
-}
-
-/** Editar el limite de un lote abierto o preparado (el jefe se equivoco). */
+/** Editar el objetivo de un lote abierto (el jefe se equivoco al cargarlo). */
 export async function editarLimite(input: {
   loteId: number;
   limite: number;
@@ -274,16 +299,18 @@ export async function editarLimite(input: {
       despues: { limite: input.limite, unidad: input.limiteUnidad },
     });
 
-    // Si el limite nuevo ya quedo alcanzado, cerrar en el acto.
+    /**
+     * Antes, si el objetivo nuevo ya quedaba alcanzado, el lote se cerraba en el
+     * acto. Ya no: el objetivo no cierra nada. Bajarlo por debajo de lo ya
+     * producido es legitimo -- el jefe se dio cuenta de que planifico de mas --
+     * y el lote sigue abierto hasta que cambie la produccion.
+     */
     const p = await progreso(lote.id, tx);
-    if (
-      lote.estado === "abierto" &&
-      limiteAlcanzado({ limite: input.limite, limiteUnidad: input.limiteUnidad }, p)
-    ) {
-      const sig = await cerrarYAvanzarEnTx(tx, lote, "limite", input.actor);
-      return { ajustado: true, cerrado: true, siguiente: sig?.codigo ?? null };
-    }
-    return { ajustado: true, cerrado: false, siguiente: null };
+    return {
+      ajustado: true,
+      ...p,
+      porcentaje: porcentajeObjetivo({ limite: input.limite, limiteUnidad: input.limiteUnidad }, p),
+    };
   });
 }
 
@@ -330,9 +357,9 @@ export async function listarLotes(
     })
     .from(lotes)
     .where(cond.length ? and(...cond) : undefined)
-    // Abiertos primero, despues preparados, despues cerrados por fecha.
+    // El abierto primero, despues los cerrados del mas reciente al mas viejo.
     .orderBy(
-      sql`case ${lotes.estado} when 'abierto' then 0 when 'preparado' then 1 else 2 end`,
+      sql`case ${lotes.estado} when 'abierto' then 0 else 1 end`,
       desc(lotes.preparadoEn),
       desc(lotes.id)
     )
@@ -343,22 +370,15 @@ export async function listarLotes(
     return {
       ...l,
       hecho,
-      // Puede pasar de 100: la caja que cruza el limite se etiqueta igual.
+      // Puede pasar de 100, y ahora eso es normal: el objetivo no cierra el
+      // lote, asi que la produccion sigue hasta que cambie lo que hace la
+      // maquina. El excedente es un dato del reporte, no un error.
       porcentaje: l.limite > 0 ? Math.round((hecho / l.limite) * 100) : 0,
       restante: Math.max(0, l.limite - hecho),
       excedente: Math.max(0, hecho - l.limite),
+      objetivoCumplido: l.limite > 0 && hecho >= l.limite,
     };
   });
 }
 
 export type LoteConProgreso = Awaited<ReturnType<typeof listarLotes>>[number];
-
-/** Cuantos lotes esperan en la cola de cada maquina. */
-export async function colaPorMaquina() {
-  const filas = await db
-    .select({ maquinaId: lotes.maquinaId, n: sql<number>`count(*)::int` })
-    .from(lotes)
-    .where(eq(lotes.estado, "preparado"))
-    .groupBy(lotes.maquinaId);
-  return new Map(filas.map((f) => [f.maquinaId, f.n]));
-}

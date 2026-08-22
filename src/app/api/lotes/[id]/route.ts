@@ -1,7 +1,14 @@
 import { body, entero, exigir, handler } from "@/lib/api";
-import { cancelarLotePreparado, cerrarLoteManual, editarLimite, type Unidad } from "@/lib/lotes";
+import { cerrarLoteManual, editarLimite, type Unidad } from "@/lib/lotes";
 
-// PATCH /api/lotes/:id — cerrar a mano, o corregir el límite.
+/**
+ * PATCH /api/lotes/:id — cerrar a mano, o corregir el objetivo.
+ *
+ * Ya no hay DELETE. Servía para cancelar un lote que todavía no había arrancado,
+ * y eso existía cuando los lotes esperaban en una cola. Ahora abrir un lote es
+ * arrancarlo, así que no hay nada en estado "por arrancar" que cancelar: si se
+ * cargó por error, se cierra a mano y se abre el correcto.
+ */
 export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }> }) {
   return handler(async () => {
     const rol = await exigir("lotes");
@@ -17,17 +24,6 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
       limiteUnidad: b.limiteUnidad === "cajas" ? "cajas" : "unidades",
       actor: rol,
     });
-  });
-}
-
-// DELETE /api/lotes/:id — cancelar un lote que todavía no arrancó.
-// No borra la fila: queda cerrado con motivo 'cancelado', así el hueco en la
-// numeración queda explicado.
-export async function DELETE(_req: Request, ctx: { params: Promise<{ id: string }> }) {
-  return handler(async () => {
-    const rol = await exigir("lotes");
-    const { id } = await ctx.params;
-    return cancelarLotePreparado({ loteId: entero(id, "id"), actor: rol });
   });
 }
 

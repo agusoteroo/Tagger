@@ -424,19 +424,18 @@ function ProgresoLote({ m }: { m: MaquinaCat }) {
         />
       </div>
       <div className="tiny muted" style={{ marginTop: 4 }}>
+        {/*
+          El lote NO se cierra al llegar al objetivo: sigue abierto hasta que el
+          jefe cambie la produccion de la maquina. Por eso acá ya no hay ninguna
+          advertencia de "la línea va a parar" -- sola no para. El operario
+          etiqueta y listo.
+        */}
         {m.restante > 0 ? (
-          <>{faltan(m.restante, m.limiteUnidad === "cajas" ? "cajas" : "unidades")} para cerrar el lote</>
+          <>{faltan(m.restante, m.limiteUnidad === "cajas" ? "cajas" : "unidades")} para el objetivo</>
         ) : (
-          <>Límite alcanzado</>
-        )}
-        {m.enCola > 0 ? (
-          <> · {plural(m.enCola, "lote")} en cola</>
-        ) : (
-          casiLleno && (
-            <span style={{ color: "var(--danger)" }}>
-              {" · "}sin lote siguiente preparado
-            </span>
-          )
+          <span style={{ color: "var(--success)" }}>
+            Objetivo cumplido · {m.porcentaje}%
+          </span>
         )}
       </div>
     </div>

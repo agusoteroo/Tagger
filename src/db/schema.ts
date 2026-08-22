@@ -8,6 +8,7 @@ import {
   text,
   timestamp,
   unique,
+  uniqueIndex,
 } from "drizzle-orm/pg-core";
 
 /**
@@ -76,17 +77,24 @@ export const maquinas = pgTable("maquinas", {
 // ---------------------------------------------------------------------------
 // Lotes
 //
-// Ciclo de vida:  preparado -> abierto -> cerrado
+// Ciclo de vida:  abierto -> cerrado
 //
-//   preparado : el jefe lo cargo pero todavia no arranco. Ya tiene numero
-//               reservado. Es la cola: cuando el lote abierto se completa,
-//               el mas viejo de los preparados de esa maquina arranca solo,
-//               asi la linea no se detiene esperando al jefe.
-//   abierto   : es el que esta produciendo. Uno solo por maquina.
-//   cerrado   : llego al limite, o lo cerro alguien a mano.
+//   abierto : es el que esta produciendo. UNO solo por maquina.
+//   cerrado : arranco otro lote en esa maquina, o lo cerro alguien a mano.
 //
-// El numero es secuencial POR FRASCO y se reserva al crear el lote (no al
-// activarlo), asi dos maquinas que hacen el mismo producto nunca colisionan.
+// EL LOTE NO SE CIERRA POR CANTIDAD. `limite` es un objetivo de produccion, no
+// un disparador: se puede pasar y la maquina sigue etiquetando. Lo que termina
+// un lote es que la maquina se ponga a hacer otra cosa -- o sea, que alguien
+// abra otro lote ahi.
+//
+// Antes habia un tercer estado, "preparado": el jefe cargaba lotes que
+// esperaban en una cola, y cuando el abierto llegaba al limite el mas viejo de
+// la cola arrancaba solo para que la linea no se detuviera. El cliente corrigio
+// la regla y con eso la cola perdio sentido: si cargar un lote ES arrancarlo, no
+// hay nada esperando. El estado ya no se usa.
+//
+// El numero es secuencial POR FRASCO, asi dos maquinas que hacen el mismo
+// producto nunca colisionan.
 // ---------------------------------------------------------------------------
 
 export const lotes = pgTable(
@@ -111,19 +119,39 @@ export const lotes = pgTable(
     maquinaNombre: text("maquina_nombre").notNull(),
     frascoNombre: text("frasco_nombre").notNull(),
 
-    /** Capacidad o meta del lote. Se elige la unidad al abrirlo. */
+    /**
+     * Objetivo de produccion del lote, en la unidad de abajo.
+     *
+     * NO es un tope: pasarse es normal y queda medido como excedente. La
+     * columna se llama `limite` por historia -- cuando el lote se cerraba al
+     * alcanzarlo. Renombrarla obligaria a una migracion que toca datos reales
+     * sin cambiar nada de lo que hace el sistema, asi que queda documentada.
+     */
     limite: integer("limite").notNull(),
     /** 'cajas' | 'unidades' */
     limiteUnidad: text("limite_unidad").notNull().default("unidades"),
 
-    /** 'preparado' | 'abierto' | 'cerrado' */
-    estado: text("estado").notNull().default("preparado"),
+    /** 'abierto' | 'cerrado'. Nace abierto: cargar un lote es arrancarlo. */
+    estado: text("estado").notNull().default("abierto"),
 
+    /**
+     * Quien lo cargo y cuando. `preparadoEn` y `abiertoEn` ahora coinciden
+     * siempre, porque cargar un lote es arrancarlo; se conservan las dos para no
+     * romper el historial de los lotes que si tuvieron los dos momentos.
+     */
     preparadoPor: text("preparado_por"),
     preparadoEn: ts("preparado_en").notNull().default(AHORA),
     abiertoEn: ts("abierto_en"),
     cerradoEn: ts("cerrado_en"),
-    /** 'limite' | 'manual' | 'cancelado' */
+    /**
+     * 'cambio' | 'manual'
+     *
+     * cambio : arranco otro lote en esa maquina. Es el caso normal.
+     * manual : el jefe lo cerro y la maquina quedo parada.
+     *
+     * Los historicos pueden tener 'limite' (cierre automatico, ya no existe) o
+     * 'cancelado' (lote preparado que nunca arranco, tampoco existe mas).
+     */
     cerradoMotivo: text("cerrado_motivo"),
     cerradoPor: text("cerrado_por"),
     nota: text("nota"),
@@ -132,6 +160,23 @@ export const lotes = pgTable(
     // La numeracion es por producto: el lote 100 del 100ml y el 100 del 500ml
     // son dos lotes distintos, pero no puede haber dos "100" del mismo frasco.
     unique("uq_lote_frasco_numero").on(t.frascoId, t.numero),
+
+    /**
+     * UNA maquina, UN lote abierto. Garantizado por la base, no asumido.
+     *
+     * Es la misma idea que UNIQUE(lote_id, caja) en etiquetas: la regla que el
+     * sistema no puede permitirse violar no vive en el codigo, vive en el
+     * esquema. `abrirLote` lee "el lote abierto de esta maquina" y lo cierra;
+     * si alguna vez hubiera dos, cerraria uno y dejaria el otro colgado para
+     * siempre, produciendo cajas en un lote que nadie mira.
+     *
+     * Indice parcial: solo aplica a los abiertos. Los cerrados de una maquina
+     * son muchos y no se estorban.
+     */
+    uniqueIndex("uq_lote_abierto_por_maquina")
+      .on(t.maquinaId)
+      .where(sql`${t.estado} = 'abierto'`),
+
     index("ix_lotes_maquina_estado").on(t.maquinaId, t.estado),
     index("ix_lotes_estado").on(t.estado),
   ]

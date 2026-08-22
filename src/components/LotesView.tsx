@@ -129,7 +129,6 @@ export function LotesView({ cat, recargar }: { cat: Catalogos; recargar: () => P
             <TarjetaLote
               key={l.id}
               l={l}
-              enCola={cat.maquinas.find((m) => m.id === l.maquinaId)?.enCola ?? 0}
               onCerrar={() =>
                 accion(
                   () => api.patch(`/api/lotes/${l.id}`, { accion: "cerrar" }),
@@ -217,7 +216,6 @@ export function LotesView({ cat, recargar }: { cat: Catalogos; recargar: () => P
         {cat.maquinas.map((m) => (
           <button key={m.id} className="btn btn-ghost" onClick={() => setAbrirEn(m)}>
             <Plus size={14} /> Lote en {m.nombre}
-            {m.enCola > 0 && <span className="chip chip-steel">{m.enCola} en cola</span>}
           </button>
         ))}
       </div>
@@ -319,30 +317,29 @@ function MotivoCierre({ motivo, por }: { motivo: string | null; por: string | nu
 
 function TarjetaLote({
   l,
-  enCola,
   onCerrar,
   onAbrirOtro,
 }: {
   l: LoteFila;
-  enCola: number;
   onCerrar: () => void;
   onAbrirOtro: () => void;
 }) {
   const unidad = l.limiteUnidad === "cajas" ? "cajas" : "unidades";
-  const casiLleno = l.porcentaje >= 85;
 
   return (
     <div className="card" style={{ padding: 18 }}>
       <div className="row" style={{ justifyContent: "space-between", marginBottom: 4 }}>
         <span className="chip chip-amber font-mono">{l.codigo}</span>
-        {enCola > 0 ? (
-          <span className="chip chip-steel">{enCola} en cola</span>
-        ) : (
-          casiLleno && (
-            <span className="chip chip-danger" title="Si no hay siguiente, la máquina va a parar">
-              Sin siguiente
-            </span>
-          )
+        {/*
+          Antes acá avisaba "Sin siguiente" cuando el lote estaba por llenarse,
+          porque al llegar al límite se cerraba solo y la máquina paraba si no
+          había otro en cola. Ya no se cierra solo, así que esa alarma no
+          corresponde: lo único que importa mostrar es si cumplió el objetivo.
+        */}
+        {l.objetivoCumplido && (
+          <span className="chip chip-ok" title={`${l.porcentaje}% de lo planificado`}>
+            Objetivo cumplido
+          </span>
         )}
       </div>
 
@@ -360,7 +357,14 @@ function TarjetaLote({
         </span>
         <span
           className="font-mono"
-          style={{ fontSize: 15, color: casiLleno ? "var(--amber)" : "var(--muted)", fontWeight: 700 }}
+          style={{
+            fontSize: 15,
+            // Verde cuando cumplio, no rojo. Llegar al objetivo es la meta, no
+            // una alarma: antes se pintaba de rojo porque el lote estaba por
+            // cerrarse solo y la maquina podia quedar parada.
+            color: l.objetivoCumplido ? "var(--success)" : "var(--muted)",
+            fontWeight: 700,
+          }}
         >
           {l.porcentaje}%
         </span>
@@ -370,7 +374,7 @@ function TarjetaLote({
         <span
           style={{
             width: `${Math.min(l.porcentaje, 100)}%`,
-            background: casiLleno ? "var(--danger)" : "var(--amber)",
+            background: l.objetivoCumplido ? "var(--success)" : "var(--amber)",
           }}
         />
       </div>
@@ -378,7 +382,7 @@ function TarjetaLote({
       <div className="tiny muted" style={{ marginBottom: 14 }}>
         {l.restante > 0
           ? faltan(l.restante, l.limiteUnidad === "cajas" ? "cajas" : "unidades")
-          : `Límite alcanzado${l.excedente > 0 ? ` (+${l.excedente} de excedente)` : ""}`}
+          : `Objetivo cumplido${l.excedente > 0 ? ` (+${l.excedente} de más)` : ""}`}
         {" · "}
         {plural(l.progresoCajas, "caja")} / {num(l.progresoUnidades)} u.
       </div>

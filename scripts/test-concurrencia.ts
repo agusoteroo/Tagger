@@ -16,7 +16,7 @@ import { spawn } from "node:child_process";
 import { and, eq, sql } from "drizzle-orm";
 import { cerrarConexion, db } from "../src/db";
 import { etiquetas, lotes, maquinas, operarios } from "../src/db/schema";
-import { cerrarLoteManual, prepararLote } from "../src/lib/lotes";
+import { cerrarLoteManual, abrirLote } from "../src/lib/lotes";
 import { requiereBaseDePrueba, requierePostgres } from "./_requiere-postgres";
 
 const PROCESOS = 6;
@@ -181,15 +181,18 @@ async function main() {
     )[0];
   }
 
-  // Límite muy alto a propósito: este test mide la numeración de cajas, no el
-  // cierre por límite (eso lo cubre test:lotes).
-  const { lote, arrancoYa } = await prepararLote({
+  // Objetivo muy alto a propósito: este test mide la numeración de cajas bajo
+  // concurrencia, no el objetivo. (Desde que el lote no se cierra por cantidad
+  // el objetivo ya no interferiría igual, pero un número grande deja claro que
+  // acá no se está probando eso.)
+  const { lote } = await abrirLote({
     maquinaId: maq.id,
     limite: 1_000_000,
     limiteUnidad: "unidades",
     actor: "test",
   });
-  if (!arrancoYa) throw new Error("El lote de prueba quedó en cola: la máquina tenía otro abierto.");
+  // Ya no hay que chequear que arrancó: abrirLote siempre abre, cerrando el que
+  // hubiera. Por eso este test puede correr dos veces seguidas sin limpiar.
   console.log(`\n  lote de prueba: ${lote.codigo} (id ${lote.id})`);
   console.log(`  ${PROCESOS} procesos x ${POR_PROCESO} etiquetas = ${TOTAL} cajas esperadas\n`);
 

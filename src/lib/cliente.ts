@@ -137,7 +137,11 @@ export type MaquinaCat = {
   restante: number;
   porcentaje: number;
   /** Cuántos lotes preparados esperan en esta máquina. */
-  enCola: number;
+  /**
+   * Si ya llego a la cantidad planificada. No cierra el lote: la maquina sigue
+   * etiquetando hasta que el jefe cambie la produccion.
+   */
+  objetivoCumplido: boolean;
 };
 
 export type LoteFila = {
@@ -164,6 +168,8 @@ export type LoteFila = {
   porcentaje: number;
   restante: number;
   excedente: number;
+  /** Si ya llego a la cantidad planificada. No cierra el lote. */
+  objetivoCumplido: boolean;
 };
 
 export type Catalogos = {

@@ -9,7 +9,7 @@ import { cerrarConexion, db } from "./index";
 import { migrar } from "./migrar";
 import { frascos, maquinas, operarios, turnos } from "./schema";
 import { setPin } from "../lib/auth";
-import { prepararLote } from "../lib/lotes";
+import { abrirLote } from "../lib/lotes";
 
 const FRASCOS = [
   { nombre: "Frasco 250ml PET", cantidadEstandar: 240, prefijoLote: "F250" },
@@ -65,7 +65,7 @@ async function main() {
       console.log(`  lote       ${m.nombre}: ya tenía uno abierto, no lo toco`);
       continue;
     }
-    const { lote } = await prepararLote({
+    const { lote } = await abrirLote({
       maquinaId: maq.id,
       limite: m.limite,
       limiteUnidad: m.unidad,

@@ -153,7 +153,7 @@ function Maquinas({ cat, accion }: { cat: Catalogos; accion: Accion }) {
                 <td className="num">{m.proximaCaja ?? "—"}</td>
                 <td className="small muted">
                   {m.loteId && m.limite !== null
-                    ? `${m.porcentaje}% del límite${m.enCola > 0 ? ` · ${m.enCola} en cola` : ""}`
+                    ? `${m.porcentaje}% del objetivo${m.objetivoCumplido ? " · cumplido" : ""}`
                     : "parada"}
                 </td>
                 <td>

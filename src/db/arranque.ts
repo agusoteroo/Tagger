@@ -4,7 +4,7 @@ import { migrar } from "./migrar";
 import { frascos, maquinas, operarios, turnos } from "./schema";
 import { PIN_POR_DEFECTO, setPin } from "@/lib/auth";
 import { bandera, texto, textoOpcional } from "@/lib/entorno";
-import { prepararLote } from "@/lib/lotes";
+import { abrirLote } from "@/lib/lotes";
 
 /**
  * Preparacion de la base al arrancar: migraciones y, si se pide, siembra
@@ -62,7 +62,7 @@ export async function sembrarSiVacio() {
   for (const m of MAQUINAS) {
     const maq = listaMaquinas.find((x) => x.nombre === m.nombre);
     if (!maq || maq.loteActualId) continue;
-    await prepararLote({
+    await abrirLote({
       maquinaId: maq.id,
       limite: m.limite,
       limiteUnidad: m.unidad,

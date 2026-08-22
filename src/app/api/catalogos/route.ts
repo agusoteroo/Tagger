@@ -4,7 +4,6 @@ import { etiquetas, frascos, lotes, maquinas, operarios, turnos } from "@/db/sch
 import { handler, rolActual } from "@/lib/api";
 import { permisosDe, pinsConfigurados, pinsPorDefecto } from "@/lib/auth";
 import { bandera } from "@/lib/entorno";
-import { colaPorMaquina } from "@/lib/lotes";
 
 /**
  * GET /api/catalogos
@@ -64,7 +63,6 @@ export async function GET() {
     // Secuenciales, no en paralelo. Ver el comentario en metricas.ts: abanicar
     // consultas con un pool chico las hace pelearse por conexiones, y sale mas
     // lento (o se cuelga) que hacerlas una atras de otra.
-    const cola = await colaPorMaquina();
     const listaOperarios = await db
       .select({ id: operarios.id, nombre: operarios.nombre })
       .from(operarios)
@@ -105,7 +103,7 @@ export async function GET() {
           hecho: 0,
           restante: 0,
           porcentaje: 0,
-          enCola: cola.get(m.id) ?? 0,
+          objetivoCumplido: false,
         };
       }
       const hecho = m.limiteUnidad === "cajas" ? m.progresoCajas : m.progresoUnidades;
@@ -114,8 +112,10 @@ export async function GET() {
         ...m,
         hecho,
         restante: Math.max(0, limite - hecho),
+        // Puede pasar de 100: el objetivo no cierra el lote, la maquina sigue
+        // produciendo hasta que el jefe cambie lo que hace.
         porcentaje: limite > 0 ? Math.round((hecho / limite) * 100) : 0,
-        enCola: cola.get(m.id) ?? 0,
+        objetivoCumplido: limite > 0 && hecho >= limite,
       };
     });
 

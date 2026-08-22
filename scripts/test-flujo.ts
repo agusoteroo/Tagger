@@ -47,11 +47,27 @@ const login = (pin: string) =>
 const nuevoLote = (maquinaId: number, limite: number, limiteUnidad = "cajas") =>
   api("/api/lotes", { method: "POST", body: JSON.stringify({ maquinaId, limite, limiteUnidad }) });
 
-const etiquetar = (maquinaId = 1, cantidad = 240) =>
+/**
+ * Etiqueta en la MISMA maquina donde el test abre sus lotes, y con un turno del
+ * catalogo.
+ *
+ * Tenia maquinaId=1 y turno "Mañana" fijos. Con la maquina elegida por catalogo
+ * (que ordena por nombre, asi que "Inyectora 1" puede ganarle a "Sopladora 1")
+ * el test abria el lote en una maquina y etiquetaba en OTRA: las consultas por
+ * loteId volvian vacias y fallaban cinco chequeos de calidad y anulacion que en
+ * realidad estaban bien.
+ */
+const etiquetar = (cantidad = 240) =>
   api("/api/etiquetas", {
     method: "POST",
-    body: JSON.stringify({ maquinaId, operarioId: 1, turno: "Mañana", cantidad }),
+    body: JSON.stringify({ maquinaId: MAQ, operarioId: OPERARIO, turno: TURNO, cantidad }),
   });
+
+// Todo esto sale del catalogo en main(), no hardcodeado: los tests comparten
+// base y los ids y nombres no son estables entre corridas.
+let MAQ = 0;
+let OPERARIO = 0;
+let TURNO = "";
 
 async function loteAbiertoEn(maquinaId: number) {
   const r = await api("/api/lotes?estado=abierto");
@@ -63,16 +79,42 @@ async function main() {
   requiereBaseDePrueba("test:flujo");
   requierePostgres("test:flujo");
 
+  /**
+   * La maquina sale del CATALOGO, no hardcodeada.
+   *
+   * Antes usaba la id 1 fija, y el test moria con "la maquina esta inactiva"
+   * cuando la 1 estaba dada de baja -- un error que no tiene nada que ver con lo
+   * que prueba. /api/catalogos devuelve solo las activas, asi que la primera de
+   * ahi siempre sirve.
+   */
+  const cat = await api("/api/catalogos");
+  const activas = (cat.json.data?.maquinas ?? []) as { id: number; nombre: string }[];
+  if (!activas.length) {
+    throw new Error("No hay máquinas activas. Corré: npm run db:catalogos-demo");
+  }
+  MAQ = activas[0]!.id;
+
+  const ops = (cat.json.data?.operarios ?? []) as { id: number; nombre: string }[];
+  const trns = (cat.json.data?.turnos ?? []) as { id: number; nombre: string }[];
+  if (!ops.length || !trns.length) {
+    throw new Error("Faltan operarios o turnos. Corré: npm run db:catalogos-demo");
+  }
+  OPERARIO = ops[0]!.id;
+  TURNO = trns[0]!.nombre;
+  console.log(
+    `  (catálogo: ${activas[0]!.nombre} id ${MAQ} · ${ops[0]!.nombre} · turno ${JSON.stringify(TURNO)})`
+  );
+
   // Preparación. Este test no puede depender de lo que dejó otro: fija sus
-  // propios PINs y se asegura su propio lote abierto en la máquina 1.
+  // propios PINs y se asegura su propio lote abierto en esa máquina.
   for (const [rol, pin] of Object.entries(PIN) as ["jefe" | "calidad" | "admin", string][]) {
     await setPin(rol, pin);
   }
 
   const entrada = await login(PIN.admin);
   if (entrada.status !== 200) throw new Error(`No pude entrar como admin: ${entrada.json.error}`);
-  if (!(await loteAbiertoEn(1))) {
-    const p = await nuevoLote(1, 500);
+  if (!(await loteAbiertoEn(MAQ))) {
+    const p = await nuevoLote(MAQ, 500);
     if (p.status !== 200) throw new Error(`No pude preparar el lote inicial: ${p.json.error}`);
   }
   await api("/api/auth/salir", { method: "POST" });
@@ -80,7 +122,7 @@ async function main() {
 
   // =========================================================================
   console.log("\n--- Sin sesión: la pantalla de etiquetar es libre, el resto no ---");
-  let r = await nuevoLote(1, 10);
+  let r = await nuevoLote(MAQ, 10);
   chequear("abrir lote sin PIN -> 403", r.status === 403, r.json.error);
 
   r = await api("/api/etiquetas/calidad", {
@@ -97,7 +139,7 @@ async function main() {
   r = await login(PIN.calidad);
   chequear("login calidad", r.status === 200 && r.json.data.rol === "calidad", r.json.data?.rol);
 
-  r = await nuevoLote(1, 10);
+  r = await nuevoLote(MAQ, 10);
   chequear("calidad NO puede abrir lote -> 403", r.status === 403, r.json.error);
 
   // =========================================================================
@@ -117,24 +159,34 @@ async function main() {
   });
   chequear("jefe NO puede configurar -> 403", r.status === 403, r.json.error);
 
-  r = await nuevoLote(1, 40);
-  chequear("jefe SÍ puede abrir lote", r.status === 200, r.json.data?.lote?.codigo);
-  chequear("queda en cola: ya había uno abierto", r.json.data?.arrancoYa === false);
-  const enCola = r.json.data.lote;
+  // El que estaba abierto ANTES de que el jefe cargue el nuevo.
+  const previo = await loteAbiertoEn(MAQ);
+
+  r = await nuevoLote(MAQ, 40);
+  chequear("jefe SÍ puede abrir lote", r.status === 200, r.json.data?.lote?.codigo ?? `HTTP ${r.status}: ${r.json.error}`);
 
   // =========================================================================
-  console.log("\n--- La cola arranca al cerrar el anterior ---");
-  const previo = await loteAbiertoEn(1);
-  r = await api(`/api/lotes/${previo.id}`, {
-    method: "PATCH",
-    body: JSON.stringify({ accion: "cerrar" }),
-  });
-  chequear("cierre manual", r.status === 200, `${r.json.data?.cerrado} -> ${r.json.data?.siguiente}`);
-  chequear("arrancó el de la cola", r.json.data?.siguiente === enCola.codigo);
-
-  const lote = await loteAbiertoEn(1);
+  // Antes acá el lote nuevo quedaba "en cola" y arrancaba solo cuando el
+  // anterior llegaba al límite. El cliente corrigió la regla: cargar un lote ES
+  // el cambio de producción, así que arranca en el acto y cierra al que estaba.
+  // =========================================================================
+  console.log("\n--- Cargar un lote cierra el que estaba ---");
+  const lote = r.json.data.lote;
   const loteId = lote.id;
-  chequear("es el que estaba en cola", lote.codigo === enCola.codigo, lote.codigo);
+  chequear(
+    "informa que cerró el anterior",
+    r.json.data?.cerrado?.codigo === previo.codigo,
+    `cerró ${r.json.data?.cerrado?.codigo} con ${r.json.data?.cerrado?.porcentaje}% del objetivo`
+  );
+
+  const abiertoAhora = await loteAbiertoEn(MAQ);
+  chequear("el nuevo es el que quedó abierto", abiertoAhora.codigo === lote.codigo, abiertoAhora.codigo);
+
+  const cerrados = await api("/api/lotes?estado=cerrado");
+  const viejo = (cerrados.json.data as { id: number; cerradoMotivo: string }[]).find(
+    (l) => l.id === previo.id
+  );
+  chequear("el anterior figura cerrado por 'cambio'", viejo?.cerradoMotivo === "cambio", viejo?.cerradoMotivo);
 
   // =========================================================================
   console.log("\n--- Etiquetar y numerar ---");
@@ -151,10 +203,17 @@ async function main() {
     ["cantidad 0", 0, 400],
     ["cantidad negativa", -5, 400],
   ] as const) {
-    r = await etiquetar(1, cantidad);
+    r = await etiquetar(cantidad);
     chequear(`${caso} rechazada`, r.status === esperado, r.json.error);
   }
-  r = await etiquetar(9999);
+
+  // La máquina inexistente va explícita, no por el helper: con la firma nueva
+  // `etiquetar(9999)` sería una CANTIDAD de 9999, y el test pasaría a probar algo
+  // completamente distinto sin que nadie lo note.
+  r = await api("/api/etiquetas", {
+    method: "POST",
+    body: JSON.stringify({ maquinaId: 999999, operarioId: OPERARIO, turno: TURNO, cantidad: 10 }),
+  });
   chequear("máquina inexistente -> 404", r.status === 404, r.json.error);
 
   // =========================================================================
@@ -229,7 +288,7 @@ async function main() {
   console.log("\n--- Cerrar sesión ---");
   await api("/api/auth/salir", { method: "POST" });
   cookie = "";
-  r = await nuevoLote(1, 10);
+  r = await nuevoLote(MAQ, 10);
   chequear("tras salir, vuelve a 403", r.status === 403);
 
   r = await etiquetar();
